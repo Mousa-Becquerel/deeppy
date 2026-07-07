@@ -18,7 +18,12 @@ from dataclasses import dataclass
 from typing import Optional
 
 from pydantic_ai import Agent, RunContext
-from pydantic_ai.models.openai import OpenAIModel
+# pydantic-ai renamed OpenAIModel → OpenAIChatModel in versions after 1.107.
+# Handle both so we're not one pip resolve away from a boot crash on a fresh box.
+try:
+    from pydantic_ai.models.openai import OpenAIChatModel as OpenAIModel
+except ImportError:  # older pydantic-ai
+    from pydantic_ai.models.openai import OpenAIModel  # type: ignore[no-redef]
 from pydantic_ai.providers.openai import OpenAIProvider
 
 from .config import OPENAI_API_KEY, OPENAI_CHAT_MODEL

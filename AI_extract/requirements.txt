@@ -1,6 +1,8 @@
 # Core
 pydantic>=2.7,<3
-pydantic-ai>=0.1.0
+# Upper-bound below 2.0 so we don't silently pick up a major API break like
+# the OpenAIModel → OpenAIChatModel rename that shipped mid-1.x.
+pydantic-ai>=1.107,<2.0
 python-dotenv>=1.0
 
 # Google Vertex AI (Gemini) — kept for fallback

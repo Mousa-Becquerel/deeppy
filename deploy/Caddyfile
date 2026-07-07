@@ -1,29 +1,25 @@
-# DeePPy production reverse proxy — dual-mode.
+# DeePPy production reverse proxy — HTTP-only smoke-test mode.
 #
-#   • When DEPLOY_DOMAIN is UNSET (smoke-test on the Elastic IP), Caddy listens
-#     on :80 with no TLS. Fine for validating the deploy end-to-end; NOT fine
-#     for real users because session cookies won't be Secure.
+# When you're ready to add TLS with a real FQDN, replace the site address line
+# below (`:80`) with your domain, e.g.:
 #
-#   • When DEPLOY_DOMAIN is SET (e.g. dpp.levery.it), Caddy auto-issues a
-#     Let's Encrypt cert on first boot and auto-renews. HTTP → HTTPS redirect
-#     is automatic. This is the production mode.
+#     dpp.levery.it {
+#         tls m.sondoqah@becquerelinstitute.eu
+#         ...
+#     }
 #
-# Same site-block for both modes; only the site address changes. Switching is
-# a one-line env var flip in .env → docker compose up -d web.
+# Caddy auto-issues + renews the Let's Encrypt cert. Everything else in this
+# file stays as-is.
 
-{$DEPLOY_DOMAIN::80} {
-	# When DEPLOY_DOMAIN is set, Caddy will auto-issue TLS. On :80-only mode
-	# this line is a no-op (no cert to issue for a bare IP).
-	tls {$LETSENCRYPT_EMAIL:internal}
-
+:80 {
 	# API — everything under /api/ goes to the FastAPI container on the
 	# internal compose network.
 	handle /api/* {
 		reverse_proxy api:8000
 	}
 
-	# SPA — everything else is the React build. Fall through to index.html for
-	# client-side routes so deep-links like /catalog/xxx work.
+	# SPA — everything else is the React build. Fall through to index.html
+	# for client-side routes so deep-links like /catalog/xxx work.
 	handle {
 		root * /srv
 		try_files {path} /index.html
@@ -39,16 +35,11 @@
 		level INFO
 	}
 
-	# Baseline hardening headers. FastAPI's H3 middleware already sets these on
-	# API responses; Caddy adds them on static-file responses too so the SPA
-	# shell is equally locked down.
+	# Baseline hardening headers on static-file responses. The API sets its
+	# own on API responses (H3 middleware in api.py).
 	header {
 		X-Content-Type-Options "nosniff"
 		Referrer-Policy "strict-origin-when-cross-origin"
 		X-Frame-Options "DENY"
-		# HSTS is only meaningful when we're actually on HTTPS. Caddy emits it
-		# unconditionally in the header directive; browsers ignore it over HTTP
-		# so it's harmless, but included here for the future TLS mode.
-		Strict-Transport-Security "max-age=31536000; includeSubDomains"
 	}
 }
