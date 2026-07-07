@@ -1,0 +1,56 @@
+# Secrets
+.env
+*.env.local
+service_account*.json
+alpinvision-*.json
+
+# Node / Vite
+node_modules/
+dist/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docker
+docker-compose.override.yml
+
+# Persistence (SQLite DB + uploaded source files)
+/data/
+/uploads/
+*.db
+*.db-journal
+*.db-wal
+
+# Customer / test fixtures — real product PDFs and extraction outputs.
+# These live outside the repo boundary; don't push someone else's IP to GitHub.
+/DPP_products/
+/00_test/
+/result_*.json
+
+# Deploy-time secrets bootstrap
+deploy/.env
+
+# Old/scratch frontend versions kept locally for reference only
+deeppy-v0_4.jsx
+deeppy-v0_41_check.jsx
+deeppy-v0_42.jsx
+
+# Favicon assets aren't runtime-critical (index.html points at /favicon.ico
+# via public/ if present). These are OneDrive-synced binaries that
+# intermittently lock; skip them.
+/favicon-v0.0/
+/assets/
+
+# TODO: hydrate + commit package-lock.json for reproducible builds. OneDrive
+# is currently holding a lock on it. `npm install` on the EC2 will regenerate.
+package-lock.json

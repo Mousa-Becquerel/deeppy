@@ -1,0 +1,28 @@
+# Multi-stage: Vite builds the SPA, Caddy serves it + terminates TLS + proxies /api.
+#
+# Build context is the repo root (see deploy/docker-compose.prod.yml).
+
+# ── Stage 1: build the React SPA ───────────────────────────────────────────
+FROM node:20-alpine AS builder
+WORKDIR /app
+
+# Deps first — best layer caching for repeat builds.
+COPY package.json package-lock.json ./
+RUN npm ci
+
+# Then the source. Copying the whole context lets Vite resolve deeppy-v0_41.jsx
+# from the repo root, matching what src/main.jsx already imports.
+COPY . .
+RUN npm run build
+
+# ── Stage 2: serve via Caddy ───────────────────────────────────────────────
+FROM caddy:2-alpine
+
+# Static SPA output — Caddy roots at /srv.
+COPY --from=builder /app/dist /srv
+
+# Caddyfile is env-templated: $DEPLOY_DOMAIN and $LETSENCRYPT_EMAIL come from
+# docker-compose's env vars at container start.
+COPY deploy/Caddyfile /etc/caddy/Caddyfile
+
+EXPOSE 80 443

@@ -1,0 +1,56 @@
+services:
+  api:
+    build: ./AI_extract
+    ports:
+      - "8003:8000"
+    environment:
+      # Stream stdout/stderr immediately — without this, Python buffers ~4KB of
+      # log output, so extraction-time logs are invisible until the buffer fills.
+      - PYTHONUNBUFFERED=1
+      # Direct Gemini API (AI Studio) — avoids Vertex AI project allowlisting.
+      # Get a key at https://aistudio.google.com/apikey
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY}
+      - GEMINI_MODEL=${GEMINI_MODEL:-gemini-3-pro-preview}
+      # Assistant (OpenAI) — chat agent; extraction stays on Gemini.
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - OPENAI_CHAT_MODEL=${OPENAI_CHAT_MODEL:-gpt-4.1}
+      # Persistence — defaults to SQLite for local dev; the `postgres` compose
+      # profile below overrides DATABASE_URL to the postgres service.
+      - DATABASE_URL=${DATABASE_URL:-sqlite:////app/data/deeppy.db}
+      - DATA_DIR=/app/data
+      - UPLOADS_DIR=/app/uploads
+      # Production hardening (B1/B5). Set ENVIRONMENT=production to enable strict
+      # JWT_SECRET checks and HTTPS-only cookies.
+      - ENVIRONMENT=${ENVIRONMENT:-development}
+      - JWT_SECRET=${JWT_SECRET:-}
+      - COOKIE_SECURE=${COOKIE_SECURE:-}
+    volumes:
+      # Persist the database and uploaded source files across rebuilds.
+      - ./data:/app/data
+      - ./uploads:/app/uploads
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/api/health', timeout=3).status==200 else 1)\""]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  # Postgres service for production-like runs.
+  # Start with:    docker compose --profile postgres up -d
+  # Then point the api at it:  DATABASE_URL=postgresql+psycopg://deeppy:deeppy@db:5432/deeppy
+  db:
+    image: postgres:16-alpine
+    profiles: ["postgres"]
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER:-deeppy}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-deeppy}
+      - POSTGRES_DB=${POSTGRES_DB:-deeppy}
+    ports:
+      - "5433:5432"
+    volumes:
+      - ./data/pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-deeppy}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10

@@ -1,0 +1,68 @@
+# Production docker-compose stack.
+#
+# Diff from the dev docker-compose.yml at the repo root:
+#   • api is NOT publicly exposed — only reachable via Caddy on the internal
+#     network. This means external :8003 goes away; Caddy takes 80/443.
+#   • ENVIRONMENT=production so the B1/B5 hardening guards activate.
+#   • Data volumes point at /opt/deeppy/* on the EBS-backed host mount, not
+#     ./data / ./uploads which live in the repo.
+#   • Caddy has persistent /data and /config volumes so Let's Encrypt certs
+#     and account keys survive container restarts.
+#
+# Boot:   cd deploy && docker compose -f docker-compose.prod.yml --env-file .env up -d
+# Update: docker compose -f docker-compose.prod.yml pull && ... up -d --build
+
+services:
+  api:
+    build: ../AI_extract
+    # No port mapping — Caddy proxies internally via the compose network. The
+    # container is reachable as `api:8000` from inside the network only.
+    expose:
+      - "8000"
+    environment:
+      - PYTHONUNBUFFERED=1
+      - ENVIRONMENT=production
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY}
+      - GEMINI_MODEL=${GEMINI_MODEL:-gemini-2.5-pro}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - OPENAI_CHAT_MODEL=${OPENAI_CHAT_MODEL:-gpt-4.1}
+      - DATABASE_URL=${DATABASE_URL:-sqlite:////app/data/deeppy.db}
+      - DATA_DIR=/app/data
+      - UPLOADS_DIR=/app/uploads
+      - JWT_SECRET=${JWT_SECRET}
+      # COOKIE_SECURE auto-derives to true from ENVIRONMENT=production. Keep
+      # this only if you're running plain-HTTP smoke tests where the browser
+      # will drop the cookie if it's marked Secure. Delete the override
+      # BEFORE going live on a real domain.
+      - COOKIE_SECURE=${COOKIE_SECURE:-false}
+    volumes:
+      - /opt/deeppy/data:/app/data
+      - /opt/deeppy/uploads:/app/uploads
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/api/health', timeout=3).status==200 else 1)\""]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  web:
+    build:
+      context: ..                      # repo root — Dockerfile.web needs package.json etc.
+      dockerfile: deploy/Dockerfile.web
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      # Empty DEPLOY_DOMAIN → Caddy listens on :80 with no TLS. Set to your
+      # FQDN (e.g. dpp.levery.it) and restart to trigger Let's Encrypt.
+      - DEPLOY_DOMAIN=${DEPLOY_DOMAIN}
+      - LETSENCRYPT_EMAIL=${LETSENCRYPT_EMAIL:-}
+    volumes:
+      # Persistent cert + account state so restarts don't re-request Let's
+      # Encrypt (which would hit rate limits fast).
+      - /opt/deeppy/caddy-data:/data
+      - /opt/deeppy/caddy-config:/config
+    depends_on:
+      - api
+    restart: unless-stopped
