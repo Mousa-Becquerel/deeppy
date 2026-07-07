@@ -6,9 +6,13 @@
 FROM node:20-alpine AS builder
 WORKDIR /app
 
-# Deps first — best layer caching for repeat builds.
-COPY package.json package-lock.json ./
-RUN npm ci
+# Deps first — best layer caching for repeat builds. Using `npm install` (not
+# `npm ci`) because package-lock.json is currently gitignored (OneDrive was
+# holding a lock on it at commit time). Trade-off: less reproducible than a
+# lockfile-driven install; acceptable for a one-instance deploy. Restore
+# `npm ci` once the lockfile is committed.
+COPY package.json ./
+RUN npm install --no-audit --no-fund
 
 # Then the source. Copying the whole context lets Vite resolve deeppy-v0_41.jsx
 # from the repo root, matching what src/main.jsx already imports.

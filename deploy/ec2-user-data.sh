@@ -25,11 +25,18 @@ DATA_DEVICE="/dev/nvme1n1"                    # EBS volume device — verify wit
 dnf update -y
 dnf install -y docker git
 
-# Docker Compose v2 as a plugin (the `docker compose` command).
+# Docker Compose v2 + Buildx as plugins.
+# AL2023's docker package doesn't ship either; compose build fails without
+# buildx >= 0.17. We install pinned versions so this is reproducible.
 mkdir -p /usr/local/lib/docker/cli-plugins
 curl -SL https://github.com/docker/compose/releases/latest/download/docker-compose-linux-x86_64 \
   -o /usr/local/lib/docker/cli-plugins/docker-compose
 chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
+
+# Buildx — required by `docker compose build`.
+curl -sSL https://github.com/docker/buildx/releases/download/v0.19.0/buildx-v0.19.0.linux-amd64 \
+  -o /usr/local/lib/docker/cli-plugins/docker-buildx
+chmod +x /usr/local/lib/docker/cli-plugins/docker-buildx
 
 systemctl enable --now docker
 usermod -aG docker ec2-user
