@@ -16,7 +16,7 @@ echo "===== DeePPy bootstrap starting at $(date -Iseconds) ====="
 
 # ── 1. Config ─────────────────────────────────────────────────────────────
 REGION="eu-central-1"
-REPO_URL="__FILL_ME_IN__"                    # e.g. https://github.com/levery/DPP_UI-UX.git
+REPO_URL="https://github.com/Mousa-Becquerel/deeppy.git"
 APP_DIR="/opt/deeppy/app"
 DATA_ROOT="/opt/deeppy"
 DATA_DEVICE="/dev/nvme1n1"                    # EBS volume device — verify with `lsblk` after launch
