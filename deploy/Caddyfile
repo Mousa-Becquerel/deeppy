@@ -1,17 +1,14 @@
-# DeePPy production reverse proxy — HTTP-only smoke-test mode.
+# DeePPy production reverse proxy — TLS mode on deeppy.eu.
 #
-# When you're ready to add TLS with a real FQDN, replace the site address line
-# below (`:80`) with your domain, e.g.:
-#
-#     dpp.levery.it {
-#         tls m.sondoqah@becquerelinstitute.eu
-#         ...
-#     }
-#
-# Caddy auto-issues + renews the Let's Encrypt cert. Everything else in this
-# file stays as-is.
+# Caddy auto-issues + renews a Let's Encrypt cert on first boot. HTTP → HTTPS
+# redirect is automatic. To temporarily revert to HTTP-only smoke mode (e.g.
+# for a rebuild before DNS is ready), replace the site address line below
+# `deeppy.eu` with `:80` and delete the `tls` line.
 
-:80 {
+deeppy.eu {
+	# Let's Encrypt uses this email for expiry notices only.
+	tls m.sondoqah@becquerelinstitute.eu
+
 	# API — everything under /api/ goes to the FastAPI container on the
 	# internal compose network.
 	handle /api/* {
@@ -38,6 +35,7 @@
 	# Baseline hardening headers on static-file responses. The API sets its
 	# own on API responses (H3 middleware in api.py).
 	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
 		X-Content-Type-Options "nosniff"
 		Referrer-Policy "strict-origin-when-cross-origin"
 		X-Frame-Options "DENY"
