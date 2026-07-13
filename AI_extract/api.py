@@ -24,6 +24,7 @@ from dpp_extractor.preprocessing.bom_parser import parse_bom_xlsx
 from dpp_extractor.config import (
     UPLOADS_DIR, AUTH_COOKIE_NAME, COOKIE_SECURE, JWT_EXPIRE_HOURS,
     JWT_SECRET, JWT_SECRET_DEV_DEFAULT, IS_PRODUCTION, ENVIRONMENT,
+    SIGNUP_ALLOWLIST,
 )
 from dpp_extractor.db import init_db, session_scope
 from dpp_extractor.db import repository as repo
@@ -200,6 +201,13 @@ async def register(body: RegisterRequest, response: Response):
     """Create a new company + its first admin user, and log them in."""
     if not body.email or not body.password:
         raise HTTPException(400, "Email and password are required")
+    # Signup allowlist (private-beta gate): when configured, reject any email
+    # not on the list. Empty allowlist = open registration (dev default).
+    if SIGNUP_ALLOWLIST and body.email.strip().lower() not in SIGNUP_ALLOWLIST:
+        raise HTTPException(
+            403,
+            "Registration is currently invite-only. Please contact the DeePPy team if you'd like access.",
+        )
     if len(body.password) < 8:
         raise HTTPException(400, "Password must be at least 8 characters")
     with session_scope() as db:

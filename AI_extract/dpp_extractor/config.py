@@ -102,3 +102,19 @@ COOKIE_SECURE: bool = (
     if _cookie_secure_env is not None
     else IS_PRODUCTION
 )
+
+# ---------------------------------------------------------------------------
+# Signup allowlist — comma-separated list of emails permitted to register
+# via POST /api/auth/register. When empty (default), registration is open
+# to anyone. When populated, /register rejects any address not on the list.
+#
+# Populate during private beta / testing to restrict signups. Example:
+#     SIGNUP_ALLOWLIST=alice@x.com,bob@y.com
+# Comparison is case-insensitive; whitespace is trimmed.
+# ---------------------------------------------------------------------------
+_signup_env = os.getenv("SIGNUP_ALLOWLIST", "").strip()
+SIGNUP_ALLOWLIST: set[str] = (
+    {e.strip().lower() for e in _signup_env.split(",") if e.strip()}
+    if _signup_env
+    else set()
+)

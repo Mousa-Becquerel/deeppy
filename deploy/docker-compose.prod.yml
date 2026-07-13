@@ -35,6 +35,9 @@ services:
       # will drop the cookie if it's marked Secure. Delete the override
       # BEFORE going live on a real domain.
       - COOKIE_SECURE=${COOKIE_SECURE:-false}
+      # Private-beta signup gate. Comma-separated list of permitted emails.
+      # Empty = registration open. See dpp_extractor/config.py.
+      - SIGNUP_ALLOWLIST=${SIGNUP_ALLOWLIST:-}
     volumes:
       - /opt/deeppy/data:/app/data
       - /opt/deeppy/uploads:/app/uploads
