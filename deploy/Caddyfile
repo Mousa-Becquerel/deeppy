@@ -9,6 +9,24 @@ deeppy.eu {
 	# Let's Encrypt uses this email for expiry notices only.
 	tls m.sondoqah@becquerelinstitute.eu
 
+	# ── Customer landing pages (bind-mounted static sites) ──
+	# The landing repo (deeppy-tech/deeppy-landing) is cloned to
+	# /opt/deeppy/static/deeppy-landing on the host and mounted read-only
+	# at /srv/static in this container.
+	#
+	# AGRO.Build.ER — customer landing at https://deeppy.eu/agrobuilder
+	# Source: deeppy-landing/public/agribuilder (folder spelled with 'i' in
+	# the repo; URL uses 'o' to match the product name AGRO.Build.ER).
+	handle_path /agrobuilder/* {
+		root * /srv/static/deeppy-landing/public/agribuilder
+		try_files {path} /index.html
+		file_server
+	}
+	# Bare /agrobuilder (no trailing slash) → redirect so relative asset
+	# paths in the HTML resolve correctly.
+	@agrobuilder_bare path /agrobuilder
+	redir @agrobuilder_bare /agrobuilder/ 308
+
 	# API — everything under /api/ goes to the FastAPI container on the
 	# internal compose network.
 	handle /api/* {

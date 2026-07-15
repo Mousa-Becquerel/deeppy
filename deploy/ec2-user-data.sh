@@ -66,8 +66,20 @@ else
 fi
 
 # App-owned subdirs. api container writes as UID 0 today; tighten later.
-mkdir -p "${DATA_ROOT}"/{data,uploads,caddy-data,caddy-config,app}
+mkdir -p "${DATA_ROOT}"/{data,uploads,caddy-data,caddy-config,app,static}
 chown -R ec2-user:ec2-user "${DATA_ROOT}"
+
+# ── 4b. Customer landing pages (deeppy-tech/deeppy-landing) ───────────────-
+# Bind-mounted into the web container by docker-compose.prod.yml.
+# On updates: `sudo git -C /opt/deeppy/static/deeppy-landing pull` (no
+# container rebuild needed, files are served live).
+LANDING_DIR="${DATA_ROOT}/static/deeppy-landing"
+if [ ! -d "${LANDING_DIR}/.git" ]; then
+  git clone --depth 1 https://github.com/deeppy-tech/deeppy-landing.git "${LANDING_DIR}"
+else
+  git -C "${LANDING_DIR}" pull --ff-only
+fi
+chown -R ec2-user:ec2-user "${DATA_ROOT}/static"
 
 # ── 4. Clone the app repo ─────────────────────────────────────────────────
 if [ "${REPO_URL}" = "__FILL_ME_IN__" ]; then

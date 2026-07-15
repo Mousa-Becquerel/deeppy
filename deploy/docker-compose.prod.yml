@@ -66,6 +66,10 @@ services:
       # Encrypt (which would hit rate limits fast).
       - /opt/deeppy/caddy-data:/data
       - /opt/deeppy/caddy-config:/config
+      # Customer landing pages — cloned from deeppy-tech/deeppy-landing.
+      # Mount read-only; `git pull` on the host updates content live, no
+      # container rebuild needed. See Caddyfile handle_path /agrobuilder/*.
+      - /opt/deeppy/static:/srv/static:ro
     depends_on:
       - api
     restart: unless-stopped
