@@ -1410,6 +1410,7 @@ function AppEditView({ onNavigate, L, dppData, product, onAddProjectDPP, onSave 
   const [chatOpen, setChatOpen] = useState(false);
   const [saved, setSaved] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState(null);
   const [updateFiles, setUpdateFiles] = useState([]);
   const [updateProgress, setUpdateProgress] = useState(false);
   const [editingField, setEditingField] = useState(null);
@@ -1418,27 +1419,44 @@ function AppEditView({ onNavigate, L, dppData, product, onAddProjectDPP, onSave 
   const [edits, setEdits] = useState({});
 
   // Persist edits: deep-merge into the passport and PATCH via the parent.
+  // On success: clear `edits`, flash "Saved!". On failure: KEEP `edits` so
+  // the user's typing is not silently discarded, and surface the error so
+  // they know the change didn't reach the server.
   const handleSave = async () => {
     const paths = Object.keys(edits);
-    if (onSave && product?.id && dppData?.passport && paths.length) {
-      setSaving(true);
-      const next = JSON.parse(JSON.stringify(dppData.passport));
-      for (const path of paths) {
-        const parts = path.split(".");
-        let obj = next;
-        for (let i = 0; i < parts.length - 1; i++) obj = obj?.[parts[i]];
-        const leaf = parts[parts.length - 1];
-        if (obj && obj[leaf] && typeof obj[leaf] === "object") {
-          obj[leaf].value = edits[path];
-          obj[leaf].confidence = "high";   // user-edited → high confidence
-        }
-      }
-      await onSave(product.id, next, "Manual edit");
-      setEdits({});
-      setSaving(false);
+    if (!(onSave && product?.id && dppData?.passport && paths.length)) {
+      // Nothing to save — flash the confirmation but don't touch state.
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
+      return;
     }
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
+    setSaving(true);
+    setSaveError(null);
+    const next = JSON.parse(JSON.stringify(dppData.passport));
+    for (const path of paths) {
+      const parts = path.split(".");
+      let obj = next;
+      for (let i = 0; i < parts.length - 1; i++) obj = obj?.[parts[i]];
+      const leaf = parts[parts.length - 1];
+      if (obj && obj[leaf] && typeof obj[leaf] === "object") {
+        obj[leaf].value = edits[path];
+        obj[leaf].confidence = "high";   // user-edited → high confidence
+      }
+    }
+    const result = await onSave(product.id, next, "Manual edit");
+    setSaving(false);
+    if (result && result.ok !== false) {
+      // Success — edits are on the server, safe to drop the local overlay.
+      setEdits({});
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
+    } else {
+      // Failure — DO NOT clear edits (user would silently lose them). Show
+      // an error banner instead so they know to retry.
+      const detail = (result && result.detail) || "Unknown error";
+      const status = result?.status ?? 0;
+      setSaveError(status ? `Save failed (HTTP ${status}): ${detail}` : `Save failed: ${detail}`);
+    }
   };
 
   // Project DPP state
@@ -1819,10 +1837,25 @@ function AppEditView({ onNavigate, L, dppData, product, onAddProjectDPP, onSave 
             </div>
             <div style={{ display: "flex", gap: 6 }}>
               <Btn small onClick={()=>setChatOpen(!chatOpen)} style={{ border: `1px solid ${chatOpen?T.accent:T.border}`, background: chatOpen?T.accentSoft:T.bg, color: chatOpen?T.accentDark:T.textSec }}><I d={ic.msg} size={13} color={chatOpen?T.accentDark:T.textSec} /> {_("assistant")}</Btn>
-              <Btn small onClick={handleSave}>{saved?<><I d={ic.check} size={13} color={T.accentDark} /> {_("saved")}</>:_("saveDraft")}</Btn>
+              <Btn small onClick={handleSave} disabled={saving}>{
+                saving ? (L?.lang==="it"?"Salvataggio…":"Saving…") :
+                saveError ? <><I d={ic.alert} size={13} color={T.red} /> {L?.lang==="it"?"Riprova":"Retry"}</> :
+                saved ? <><I d={ic.check} size={13} color={T.accentDark} /> {_("saved")}</> :
+                _("saveDraft")
+              }</Btn>
               <Btn small primary onClick={()=>onNavigate("app")}>{_("preview")} <I d={ic.arrow} size={13} color={T.navy} /></Btn>
             </div>
           </div>
+          {saveError && (
+            <div style={{ marginBottom: 12, padding: "10px 14px", borderRadius: 8, border: `1px solid ${T.red}`, background: T.redSoft || "#FEE2E2", color: T.red, fontSize: 12, display: "flex", alignItems: "flex-start", gap: 8 }}>
+              <I d={ic.alert} size={14} color={T.red} />
+              <div style={{ flex: 1, lineHeight: 1.5 }}>
+                <div style={{ fontWeight: 700, marginBottom: 2 }}>{L?.lang==="it"?"Modifiche non salvate":"Changes not saved"}</div>
+                <div>{saveError}. {L?.lang==="it"?"Le tue modifiche sono ancora presenti nei campi — clicca 'Riprova' per salvarle di nuovo.":"Your edits are still in the fields — click 'Retry' to save them again."}</div>
+              </div>
+              <button onClick={()=>setSaveError(null)} style={{ background: "none", border: "none", cursor: "pointer", color: T.red, padding: 2 }}><I d={ic.x} size={14} color={T.red} /></button>
+            </div>
+          )}
           {/* Document update upload zone */}
           <div style={{ marginBottom: 16, padding: "14px 18px", background: T.bg, borderRadius: 10, border: `1px dashed ${updateFiles.length > 0 ? T.accent : T.border}`, transition: "border .2s" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: updateFiles.length > 0 ? 10 : 0 }}>
@@ -4374,6 +4407,10 @@ export default function DeePPy() {
   };
 
   // Save edits to a product's passport (PATCH) + refresh from server.
+  // Returns { ok: true } on success, or { ok: false, status, detail } so the
+  // caller can distinguish "saved" from "silently ate my edits" — the client
+  // used to lose in-progress edits when the PATCH failed and the UI still
+  // showed "Saved!".
   const handleSaveProduct = async (productId, passport, changeSummary) => {
     try {
       const res = await fetch(`/api/products/${productId}`, {
@@ -4382,11 +4419,22 @@ export default function DeePPy() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ passport, change_summary: changeSummary || null }),
       });
+      if (!res.ok) {
+        let detail = res.statusText;
+        try { detail = (await res.json())?.detail || detail; } catch {}
+        console.error(`Save failed [${res.status}]:`, detail);
+        return { ok: false, status: res.status, detail };
+      }
       const api = await res.json();
-      if (api?.id) setProducts(prev => prev.map(p => p.id === productId ? apiToProduct(api) : p));
-      return true;
-    } catch {
-      return false;
+      if (!api?.id) {
+        console.error("Save returned no product id:", api);
+        return { ok: false, status: res.status, detail: "malformed_response" };
+      }
+      setProducts(prev => prev.map(p => p.id === productId ? apiToProduct(api) : p));
+      return { ok: true };
+    } catch (err) {
+      console.error("Save failed (network/other):", err);
+      return { ok: false, status: 0, detail: String(err) };
     }
   };
 

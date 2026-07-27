@@ -21,6 +21,7 @@ from ..models.merge_result import MergeResult
 from ..ontology.enums import ProductFamily
 from .classify import ClassificationAgent
 from .extract import ExtractionAgent
+from .grounding import verify_grounded_strings
 from .merge import merge_extractions
 from .postprocess import (
     populate_compliance_presence,
@@ -154,10 +155,15 @@ class PipelineOrchestrator:
         # 2. Auto-link uploaded files to Documents section (no AI)
         # 3. Collapse multi-variant product_name to a single SKU when a BoM
         #    or filename pins down the target product.
+        # 4. Grounding check — blank string values on high-risk fields that
+        #    the AI produced but that don't actually appear in any source
+        #    document. Client trust-critical: fabricated addresses etc. must
+        #    NOT reach the UI marked as verified data.
         all_filenames = [p.name for p in file_paths]
         populate_compliance_presence(passport, classifications, all_filenames)
         populate_documents_section(passport, classifications, all_filenames)
         simplify_multi_variant_product_name(passport, bom_data_list, all_filenames)
+        verify_grounded_strings(passport, file_paths)
 
         elapsed = time.time() - start
         logger.info(
