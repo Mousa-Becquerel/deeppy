@@ -591,6 +591,36 @@ def _catalog_kpis(passport: dict) -> dict:
     }
 
 
+@app.get("/api/catalog/{product_id}/documents/{doc_id}")
+async def get_catalog_document(product_id: str, doc_id: str,
+                               user: dict = Depends(get_current_user)):
+    """Public catalog document download — for any published product, any
+    logged-in user (cross-tenant by design, same shape as /api/catalog/{id}).
+    Same B2 path-traversal guard as /api/products/{}/documents/{}."""
+    with session_scope() as db:
+        product = repo.get_product(db, product_id)
+        if not product or product.status != "published":
+            raise HTTPException(404, "Document not found")
+        doc = db.get(db_models.Document, doc_id)
+        if not doc or doc.product_id != product_id:
+            raise HTTPException(404, "Document not found")
+        if not doc.storage_path:
+            raise HTTPException(404, "File not stored on disk")
+        try:
+            resolved = Path(doc.storage_path).resolve(strict=False)
+            uploads_root = UPLOADS_DIR.resolve(strict=False)
+            resolved.relative_to(uploads_root)
+        except (ValueError, OSError):
+            logger.warning(
+                f"Rejected catalog document fetch outside uploads volume: "
+                f"product={product_id} doc={doc_id} path={doc.storage_path}"
+            )
+            raise HTTPException(404, "Document not found")
+        if not resolved.exists():
+            raise HTTPException(404, "File missing from disk")
+        return FileResponse(str(resolved), filename=doc.filename)
+
+
 @app.get("/api/catalog/{product_id}")
 async def get_catalog_product(product_id: str, user: dict = Depends(get_current_user)):
     """Catalog detail: a single product, but only if it's published.

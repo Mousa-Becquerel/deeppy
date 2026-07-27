@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from "react";
+import QRCode from "qrcode";
 
 // ─── Analytics Init (conditional on consent) ───
 const initAnalytics = () => {
@@ -939,12 +940,19 @@ function ComponentiTab({ editMode, onNavigate, L, dppData }) {
     const sup = (m.suppliers && m.suppliers[0]) || null;
     const supName = sup ? _mv(sup, "name") : null;
     const descField = m.description;
+    // Item 13: use the real source document when the extractor recorded one;
+    // fall back to supplier name if the material has one, otherwise blank.
+    // The old default "EPD / BoM" was misleading whenever no EPD or BoM was
+    // actually attached (client feedback: static text unrelated to what was
+    // uploaded).
+    const descSrc = (descField && typeof descField === "object" && descField.source) || null;
+    const realSource = (descSrc && (descSrc.document_name || descSrc.snippet)) || null;
     return {
       id: _mv(m, "id_code") || m.material_id || ("mat" + i),
       linked: false,
       genericName: _mv(m, "description") || (it ? "Materiale" : "Material"),
       detail: parts.join(" — ") || null,
-      source: supName && supName !== "-" ? supName : "EPD / BoM",
+      source: realSource || (supName && supName !== "-" ? supName : null),
       conf: (descField && typeof descField === "object" && descField.confidence) || "high",
     };
   });
@@ -1476,6 +1484,22 @@ function AppEditView({ onNavigate, L, dppData, product, onAddProjectDPP, onSave 
   const initCompleteness = stats?.completeness ?? 87;
   const [completeness, setCompleteness] = useState(initCompleteness);
   useEffect(() => { if (stats?.completeness != null) setCompleteness(Math.round(stats.completeness)); }, [stats?.completeness]);
+  // Item 3: live completeness — bumps as the user confirms medium fields or
+  // types new values. Server stats only refresh after Save Draft; the bar
+  // should feel responsive on every interaction. We use max() so it never
+  // goes DOWN just because the user confirmed something that was already
+  // counted server-side.
+  const liveCompleteness = (() => {
+    const total = stats?.required_total ?? Math.max(1, reqTotal || 13);
+    const filled = stats?.required_filled ?? 0;
+    // Every confirm (medium → manual) OR edit of a required-field path
+    // counts as one more "handled" field. Cheap over-count is fine.
+    const confirmBumps = Object.values(confirmed || {}).filter(c => c === "manual").length;
+    const editBumps = Object.keys(edits || {}).length;
+    const bumped = Math.min(total, filled + confirmBumps + editBumps);
+    const pctFromBumps = Math.round((bumped / total) * 100);
+    return Math.max(Math.round(completeness || 0), pctFromBumps);
+  })();
   const highCount = stats?.confidence?.high ?? (hasAI ? 0 : 14);
   const medCount = stats?.confidence?.medium ?? (hasAI ? 0 : 3);
   const lowCount = stats?.confidence?.low ?? (hasAI ? 0 : 1);
@@ -1503,10 +1527,10 @@ function AppEditView({ onNavigate, L, dppData, product, onAddProjectDPP, onSave 
 
   const [complMode, setComplMode] = useState("required"); // "required" | "all" | "recall"
   const displayedPct = complMode === "recall"
-    ? (recallState ? Math.round(recallState.recall) : completeness)
+    ? (recallState ? Math.round(recallState.recall) : liveCompleteness)
     : complMode === "all"
-    ? (overallPct != null ? Math.round(overallPct) : completeness)
-    : completeness;
+    ? (overallPct != null ? Math.round(overallPct) : liveCompleteness)
+    : liveCompleteness;
 
   const EF = ({ id, l, v, c, n, s, path }) => {
     const confState = confirmed[id]; // "auto" | "manual" | undefined
@@ -2002,7 +2026,34 @@ function CatalogView({ onNavigate, L }) {
       if (r.ok) setSelectedDetail(await r.json());
     } catch {}
   };
-  const closeCard = () => { setSelectedDPP(null); setSelectedDetail(null); };
+  const closeCard = () => {
+    setSelectedDPP(null); setSelectedDetail(null);
+    // If a ?dpp= param opened this card via QR deep-link, strip it on close
+    // so refreshing the page doesn't re-open the same modal.
+    try {
+      const url = new URL(window.location.href);
+      if (url.searchParams.has("dpp")) {
+        url.searchParams.delete("dpp");
+        window.history.replaceState({}, "", url.toString());
+      }
+    } catch {}
+  };
+
+  // Item 10: QR deep-link handler. When someone scans a QR code that points
+  // at https://deeppy.eu/?dpp=<id>, they land on the catalog and this effect
+  // auto-opens the modal for that product once the catalog rows have loaded.
+  useEffect(() => {
+    if (loading || rows.length === 0) return;
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const dppId = params.get("dpp");
+      if (!dppId) return;
+      const row = rows.find(r => r.id === dppId);
+      if (row) openCard(row);
+    } catch {}
+    // Intentional: only run once rows are loaded.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading, rows.length]);
 
   return (
     <div style={{ display: "flex", height: "100vh", fontFamily: font, background: T.bgSoft, overflow: "hidden" }}>
@@ -2161,6 +2212,21 @@ function AppView({ onNavigate, L, product, onAddProjectDPP, onPublish }) {
   const [showExport, setShowExport] = useState(false);
   const [showPublicDPP, setShowPublicDPP] = useState(false);
   const [versions, setVersions] = useState([]);
+  // Item 10: real QR code, not the decorative SVG that shipped before.
+  // Encodes a deep-link to the catalog with the product pre-selected;
+  // opening the URL takes any user (once logged in) straight to this DPP.
+  const [qrDataUrl, setQrDataUrl] = useState("");
+  const qrTarget = product?.id
+    ? `https://deeppy.eu/?dpp=${product.id}`
+    : "https://deeppy.eu/";
+  useEffect(() => {
+    if (!showQR) return;
+    let cancelled = false;
+    QRCode.toDataURL(qrTarget, { margin: 1, width: 512, errorCorrectionLevel: "M" })
+      .then(url => { if (!cancelled) setQrDataUrl(url); })
+      .catch(err => console.error("QR generation failed:", err));
+    return () => { cancelled = true; };
+  }, [showQR, qrTarget]);
   // Load real version history when the Versions tab is opened.
   useEffect(() => {
     if (tab === "versioni" && product?.id && !String(product.id).startsWith("prod-")) {
@@ -2991,50 +3057,23 @@ body{font-family:'Inter',sans-serif;color:#1E293B;font-size:12px;line-height:1.5
               <button onClick={() => setShowQR(false)} style={{ background: "none", border: "none", cursor: "pointer", padding: 4 }}><I d={ic.x} size={18} color={T.textSec} /></button>
             </div>
             <div style={{ display: "flex", flexDirection: "column", alignItems: "center", padding: "28px 24px" }}>
-              <svg data-qr="1" viewBox="0 0 210 210" style={{ width: 200, height: 200, marginBottom: 16 }}>
-                <rect width="210" height="210" fill="white" rx="8" />
-                {/* QR finder patterns (3 corners) */}
-                <rect x="12" y="12" width="56" height="56" rx="6" fill={T.navy} />
-                <rect x="20" y="20" width="40" height="40" rx="3" fill="white" />
-                <rect x="28" y="28" width="24" height="24" rx="2" fill={T.navy} />
-                <rect x="142" y="12" width="56" height="56" rx="6" fill={T.navy} />
-                <rect x="150" y="20" width="40" height="40" rx="3" fill="white" />
-                <rect x="158" y="28" width="24" height="24" rx="2" fill={T.navy} />
-                <rect x="12" y="142" width="56" height="56" rx="6" fill={T.navy} />
-                <rect x="20" y="150" width="40" height="40" rx="3" fill="white" />
-                <rect x="28" y="158" width="24" height="24" rx="2" fill={T.navy} />
-                {/* Data modules - branded pattern */}
-                {[
-                  [80,12],[92,12],[104,12],[116,12],[128,12],
-                  [80,24],[104,24],[128,24],
-                  [80,36],[92,36],[104,36],[116,36],[128,36],
-                  [12,80],[24,80],[36,80],[48,80],[56,80],[80,80],[92,80],[116,80],[128,80],[142,80],[154,80],[166,80],[178,80],[186,80],
-                  [12,92],[36,92],[56,92],[80,92],[104,92],[128,92],[142,92],[166,92],[186,92],
-                  [12,104],[24,104],[36,104],[48,104],[56,104],[80,104],[92,104],[116,104],[128,104],[142,104],[154,104],[166,104],[178,104],[186,104],
-                  [80,116],[92,116],[104,116],[116,116],[128,116],
-                  [80,128],[116,128],
-                  [80,140],[92,140],[104,140],[116,140],[128,140],
-                  [142,142],[154,142],[166,142],[178,142],[186,142],
-                  [142,154],[186,154],
-                  [142,166],[154,166],[166,166],[178,166],[186,166],
-                  [142,178],[166,178],
-                  [142,186],[154,186],[166,186],[178,186],[186,186],
-                ].map(([x,y],i) => <rect key={i} x={x} y={y} width="10" height="10" rx="1" fill={i%7===0?T.accent:T.navy} />)}
-                {/* DeePPy logo center */}
-                <rect x="86" y="86" width="38" height="38" rx="6" fill="white" stroke={T.border} strokeWidth="1" />
-                <text x="105" y="108" textAnchor="middle" fontSize="10" fontWeight="800" fontFamily="Inter, sans-serif" fill={T.navy}>D<tspan fill={T.accent}>PP</tspan></text>
-              </svg>
+              {/* Item 10: real QR generated from the product URL via `qrcode`. */}
+              {qrDataUrl ? (
+                <img data-qr="1" src={qrDataUrl} alt={`QR code for ${pname}`} style={{ width: 200, height: 200, marginBottom: 16, borderRadius: 8, imageRendering: "pixelated" }} />
+              ) : (
+                <div style={{ width: 200, height: 200, marginBottom: 16, borderRadius: 8, background: T.bgSoft, border: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, color: T.textSec }}>{it?"Generazione…":"Generating…"}</div>
+              )}
               <div style={{ fontSize: 16, fontWeight: 800, color: T.navy, marginBottom: 2 }}>{pname}</div>
               <div style={{ fontSize: 12, color: T.textSec, marginBottom: 4 }}>{puid}</div>
-              <div style={{ fontSize: 11, color: T.textSec, marginBottom: 16 }}>{`deeppy.eu/dpp/${puid}`}</div>
+              <div style={{ fontSize: 11, color: T.textSec, marginBottom: 16, wordBreak: "break-all", textAlign: "center" }}>{qrTarget}</div>
               <div style={{ display: "flex", gap: 8, width: "100%" }}>
-                <Btn small primary onClick={() => {
-                  const svgEl = document.querySelector("[data-qr]");
-                  if (!svgEl) return;
-                  const svgStr = new XMLSerializer().serializeToString(svgEl);
-                  const b = new Blob([svgStr], {type:"image/svg+xml"});
-                  const a = document.createElement("a"); a.href = URL.createObjectURL(b); a.download = "DPP-XPS100-QR.svg"; document.body.appendChild(a); a.click(); document.body.removeChild(a);
-                }} style={{ flex: 1 }}><I d={ic.download} size={13} color={T.navy} /> {it?"Scarica SVG":"Download SVG"}</Btn>
+                <Btn small primary disabled={!qrDataUrl} onClick={() => {
+                  if (!qrDataUrl) return;
+                  const a = document.createElement("a");
+                  a.href = qrDataUrl;
+                  a.download = `DPP-${(puid || product?.id || "product").replace(/[^a-zA-Z0-9-_]/g, "")}-QR.png`;
+                  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+                }} style={{ flex: 1 }}><I d={ic.download} size={13} color={T.navy} /> {it?"Scarica PNG":"Download PNG"}</Btn>
                 <Btn small onClick={() => setShowQR(false)} style={{ flex: 1 }}>{it?"Chiudi":"Close"}</Btn>
               </div>
             </div>
@@ -4186,7 +4225,41 @@ function PublicDPPView({ onNavigate, L, isSpecific = false, dppData = null, imag
 
   const PanelEnv = () => { const e = p.env; return (<div><div style={{ display: "flex", alignItems: "center", gap: 16, padding: 20, borderRadius: 12, background: `${T.accentSoft}60`, border: `1px solid ${T.accent}30`, marginBottom: 20 }}><div style={{ width: 56, height: 56, borderRadius: 12, background: T.accent, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22, fontWeight: 800, color: T.navy }}>{e.energyLabel}</div><div><div style={{ fontSize: 14, fontWeight: 700, color: T.textDark }}>{it?"Classe Energetica":"Energy Class"}</div><div style={{ fontSize: 12, color: T.textSec }}>{it?"Efficienza isolamento":"Insulation efficiency"}</div></div></div><div style={{ padding: 16, borderRadius: 10, border: `1px solid ${T.border}`, marginBottom: 12, background: T.bg }}><div style={{ fontSize: 11, fontWeight: 600, color: T.textSec, textTransform: "uppercase", marginBottom: 6 }}>GWP ({e.gwp.phase})</div><div style={{ fontSize: 28, fontWeight: 800, color: T.navy, fontFamily: mono }}>{e.gwp.value} <span style={{ fontSize: 13, fontWeight: 500, color: T.textSec }}>{e.gwp.unit}</span></div></div><div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>{[[it?"Contenuto Riciclato":"Recycled Content",e.recycled.value,e.recycled.detail],[it?"Riciclabilità":"Recyclability",e.recyclability.value,e.recyclability.detail]].map(([t,v,d],i)=>(<div key={i} style={{ padding: 16, borderRadius: 10, border: `1px solid ${T.border}` }}><div style={{ fontSize: 11, fontWeight: 600, color: T.textSec, textTransform: "uppercase", marginBottom: 4 }}>{t}</div><div style={{ fontSize: 22, fontWeight: 800, color: T.accentDark||T.accent }}>{v}</div><div style={{ fontSize: 11, color: T.textSec }}>{d}</div></div>))}</div><div style={{ marginTop: 12, padding: 12, borderRadius: 8, background: T.bgSoft, border: `1px solid ${T.borderLight}` }}><div style={{ fontSize: 11, color: T.textSec }}>EPD N° <strong style={{ color: T.textDark }}>{e.epd.number}</strong> — {e.epd.valid}</div></div></div>); };
 
-  const PanelDocs = () => (<div>{p.docs.map((d,i)=>(<div key={i} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 16px", borderRadius: 10, border: `1px solid ${T.border}`, marginBottom: 8, background: T.bg, cursor: "pointer" }}><div style={{ display: "flex", alignItems: "center", gap: 12 }}><div style={{ width: 36, height: 36, borderRadius: 8, background: `${T.red}12`, display: "flex", alignItems: "center", justifyContent: "center" }}><I d={ic.file} size={16} color={T.red} /></div><div><div style={{ fontSize: 13, fontWeight: 600, color: T.textDark }}>{d.name}</div><div style={{ fontSize: 11, color: T.textSec }}>{d.type} {"·"} {d.size} {"·"} {d.date}</div></div></div><I d={ic.download} size={16} color={T.accent} /></div>))}</div>);
+  // Item 8: docs list — wire the download button. Each doc has a DB id when
+  // sourced from dppData.documents; we hit the public catalog endpoint for
+  // that product+doc pair. Docs without an id (legacy passport-slotted or
+  // filename-only entries) don't have a downloadable file behind them, so
+  // the icon is shown dimmed and does nothing.
+  const productId = dppData?.id;
+  const downloadDoc = async (docId, filename) => {
+    if (!productId || !docId) return;
+    try {
+      const res = await fetch(`/api/catalog/${productId}/documents/${docId}`, { credentials: "include" });
+      if (!res.ok) { console.error(`Download failed: HTTP ${res.status}`); return; }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url; a.download = filename || "document";
+      document.body.appendChild(a); a.click();
+      document.body.removeChild(a); URL.revokeObjectURL(url);
+    } catch (err) { console.error("Download failed:", err); }
+  };
+  const PanelDocs = () => (<div>{p.docs.map((d,i)=>{
+    const clickable = !!d.id;
+    const onClick = clickable ? () => downloadDoc(d.id, d.name) : undefined;
+    return (
+      <div key={i} onClick={onClick} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 16px", borderRadius: 10, border: `1px solid ${T.border}`, marginBottom: 8, background: T.bg, cursor: clickable ? "pointer" : "default", opacity: clickable ? 1 : 0.6 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <div style={{ width: 36, height: 36, borderRadius: 8, background: `${T.red}12`, display: "flex", alignItems: "center", justifyContent: "center" }}><I d={ic.file} size={16} color={T.red} /></div>
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 600, color: T.textDark }}>{d.name}</div>
+            <div style={{ fontSize: 11, color: T.textSec }}>{[d.type, d.size, d.date].filter(Boolean).join(" · ")}</div>
+          </div>
+        </div>
+        <I d={ic.download} size={16} color={clickable ? T.accent : T.textSec} />
+      </div>
+    );
+  })}</div>);
 
   const PanelHistory = () => (<div><p style={{ fontSize: 12, color: T.textSec, marginBottom: 16 }}>{it?"Cronologia completa delle modifiche":"Complete changelog"}</p>{p.versions.map((v,vi)=>{const isOpen=expanded===vi;const isFirst=vi===p.versions.length-1;const isLast=vi===0;return(<div key={vi} style={{ position: "relative", paddingLeft: 28 }}>{vi<p.versions.length-1&&<div style={{ position: "absolute", left: 9, top: 24, bottom: -2, width: 2, background: isOpen ? T.accent : T.border }} />}<div style={{ position: "absolute", left: 3, top: 6, width: 14, height: 14, borderRadius: "50%", background: isLast ? T.accent : isFirst ? T.navy : T.bg, border: `2.5px solid ${isLast ? T.accent : isFirst ? T.navy : T.border}`, zIndex: 2, boxShadow: isLast ? `0 0 0 3px ${T.accentSoft}` : "none" }} /><div onClick={()=>setExpanded(isOpen?-1:vi)} style={{ padding: "12px 16px", borderRadius: 10, marginBottom: 10, cursor: "pointer", border: `1px solid ${isOpen ? T.accent+"50" : T.border}`, background: isOpen ? T.accentSoft+"30" : T.bg }}><div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}><div style={{ display: "flex", alignItems: "center", gap: 8 }}><span style={{ fontSize: 13, fontWeight: 700, color: T.navy, fontFamily: mono }}>{v.ver}</span>{isLast&&<Badge color={T.accentDark||T.accent} bg={T.accentSoft}>{it?"ATTUALE":"CURRENT"}</Badge>}{isFirst&&<Badge color={T.textSec} bg={T.borderLight}>{it?"PRIMA RELEASE":"FIRST RELEASE"}</Badge>}</div><span style={{ fontSize: 11, color: T.textSec }}>{v.date}</span></div><div style={{ display: "flex", gap: 4, marginTop: 6, flexWrap: "wrap" }}>{v.changes.map((ch,ci)=>{const st=chSt[ch.type]||chSt.added;return(<span key={ci} style={{ display: "inline-flex", alignItems: "center", gap: 3, padding: "2px 7px", borderRadius: 4, fontSize: 10, fontWeight: 600, color: st.color, background: st.bg }}><I d={st.d} size={9} color={st.color} />{ch.field.length>20?ch.field.slice(0,20)+"\u2026":ch.field}</span>);})}</div>{isOpen&&<div style={{ marginTop: 12, paddingTop: 12, borderTop: `1px solid ${T.border}` }}><div style={{ fontSize: 11, color: T.textSec, marginBottom: 10 }}>{it?"Autore":"Author"}: <strong style={{ color: T.textDark }}>{v.author}</strong></div>{v.changes.map((ch,ci)=>{const st=chSt[ch.type]||chSt.added;return(<div key={ci} style={{ padding: "10px 12px", borderRadius: 8, marginBottom: 6, background: T.bg, border: `1px solid ${T.borderLight}` }}><div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}><div style={{ width: 20, height: 20, borderRadius: 5, display: "flex", alignItems: "center", justifyContent: "center", background: st.bg }}><I d={st.d} size={10} color={st.color} /></div><span style={{ fontSize: 12, fontWeight: 600, color: T.textDark }}>{ch.field}</span><Badge color={T.textSec} bg={T.borderLight}>{ch.section}</Badge></div>{ch.from&&ch.to?(<div style={{ display: "flex", alignItems: "center", gap: 8, marginLeft: 26, fontSize: 12, flexWrap: "wrap" }}><span style={{ padding: "2px 8px", borderRadius: 4, background: T.redSoft||"#FEE2E2", color: T.red, textDecoration: "line-through", fontFamily: mono, fontSize: 11 }}>{ch.from}</span><span style={{ color: T.textSec, fontSize: 10 }}>{"→"}</span><span style={{ padding: "2px 8px", borderRadius: 4, background: T.accentSoft, color: T.accentDark||T.accent, fontWeight: 600, fontFamily: mono, fontSize: 11 }}>{ch.to}</span></div>):ch.detail?(<div style={{ marginLeft: 26, fontSize: 12, color: T.textSec }}>{ch.detail}</div>):null}</div>);})}</div>}</div></div>);})}</div>);
 
@@ -4326,7 +4399,16 @@ export default function DeePPy() {
         if (d?.user) {
           setUser(d.user);
           loadProducts();
-          setPage(prev => (prev === "landing" || prev === "signup" || prev === "login") ? "dashboard" : prev);
+          // If the URL carries a QR deep-link (?dpp=<id>) send the user to
+          // the catalog so the CatalogView effect can auto-open the modal.
+          let hasDppParam = false;
+          try { hasDppParam = new URLSearchParams(window.location.search).has("dpp"); } catch {}
+          setPage(prev => {
+            if (prev === "landing" || prev === "signup" || prev === "login") {
+              return hasDppParam ? "catalog" : "dashboard";
+            }
+            return prev;
+          });
         }
       })
       .catch(() => {})
