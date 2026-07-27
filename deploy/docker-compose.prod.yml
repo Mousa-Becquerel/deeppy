@@ -23,7 +23,12 @@ services:
       - PYTHONUNBUFFERED=1
       - ENVIRONMENT=production
       - GOOGLE_API_KEY=${GOOGLE_API_KEY}
-      - GEMINI_MODEL=${GEMINI_MODEL:-gemini-2.5-pro}
+      # gemini-2.5-pro was deprecated for new API-key accounts mid-2026 —
+      # 404s any account without grandfathered access. Using Gemini 3 Flash
+      # Preview: Google's frontier flash model (Dec 2025 release), tier 1
+      # multimodal + structured output at $0.50/M input tokens. Preview
+      # model — pin an exact stable version if this changes behaviour.
+      - GEMINI_MODEL=${GEMINI_MODEL:-gemini-3-flash-preview}
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - OPENAI_CHAT_MODEL=${OPENAI_CHAT_MODEL:-gpt-4.1}
       - DATABASE_URL=${DATABASE_URL:-sqlite:////app/data/deeppy.db}
