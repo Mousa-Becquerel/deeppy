@@ -1484,18 +1484,23 @@ function AppEditView({ onNavigate, L, dppData, product, onAddProjectDPP, onSave 
   const initCompleteness = stats?.completeness ?? 87;
   const [completeness, setCompleteness] = useState(initCompleteness);
   useEffect(() => { if (stats?.completeness != null) setCompleteness(Math.round(stats.completeness)); }, [stats?.completeness]);
-  // Item 3: live completeness — bumps as the user confirms medium fields or
-  // types new values. Server stats only refresh after Save Draft; the bar
-  // should feel responsive on every interaction. We use max() so it never
-  // goes DOWN just because the user confirmed something that was already
-  // counted server-side.
+  // Item 3: `confirmed` and the liveCompleteness derivation both need to be
+  // in scope BEFORE displayedPct references them a few lines down. Declaring
+  // them here (was previously ~86 lines lower) avoids a temporal-dead-zone
+  // crash — a prior version's IIFE read `confirmed || {}` while `confirmed`
+  // was still in TDZ, which minified to "Cannot access 'Vt' before init".
+  const [confirmed, setConfirmed] = useState({});
+  const confFor = (id, orig) => confirmed[id] ? "high" : orig;
+  const doConfirm = (id) => setConfirmed(p => ({ ...p, [id]: p[id] || "auto" }));
+  // liveCompleteness bumps as the user confirms medium fields or edits new
+  // values. Server stats only refresh after Save Draft; the bar should feel
+  // responsive on every interaction. max() so a confirm on an already-counted
+  // field can never make the bar drop.
   const liveCompleteness = (() => {
-    const total = stats?.required_total ?? Math.max(1, reqTotal || 13);
+    const total = stats?.required_total ?? 13;
     const filled = stats?.required_filled ?? 0;
-    // Every confirm (medium → manual) OR edit of a required-field path
-    // counts as one more "handled" field. Cheap over-count is fine.
-    const confirmBumps = Object.values(confirmed || {}).filter(c => c === "manual").length;
-    const editBumps = Object.keys(edits || {}).length;
+    const confirmBumps = Object.values(confirmed).filter(c => c === "manual").length;
+    const editBumps = Object.keys(edits).length;
     const bumped = Math.min(total, filled + confirmBumps + editBumps);
     const pctFromBumps = Math.round((bumped / total) * 100);
     return Math.max(Math.round(completeness || 0), pctFromBumps);
@@ -1575,9 +1580,8 @@ function AppEditView({ onNavigate, L, dppData, product, onAddProjectDPP, onSave 
     { key:"documenti", label:_("documents"), iconD:ic.file, w:0, e:0 },
   ];
 
-  const [confirmed, setConfirmed] = useState({});
-  const confFor = (id, orig) => confirmed[id] ? "high" : orig;
-  const doConfirm = (id) => setConfirmed(p => ({ ...p, [id]: p[id] || "auto" }));
+  // (confirmed/confFor/doConfirm moved up to before liveCompleteness — see
+  // TDZ note there. Kept here as a comment marker to help greps.)
 
   const renderTab = () => {
     switch(tab){
