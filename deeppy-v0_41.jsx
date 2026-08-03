@@ -4216,6 +4216,33 @@ function PublicDPPView({ onNavigate, L, isSpecific = false, dppData = null, imag
   const PanelTech = () => (<div><div style={{ marginBottom: 14 }}><Badge color={T.textSec} bg={T.borderLight}>{it?"Norma":"Standard"}: {p.standard}</Badge></div>{Object.entries(p.technical).map(([k,v])=><Row key={k} label={k} value={v} />)}</div>);
 
   const PanelComp = () => {
+    // Item 14 (client feedback): concise "t-shirt label" style summary of the
+    // material composition, e.g. "60% Calce idraulica · 25% Nocciolino di
+    // oliva · 10% Biochar · 5% Water". Renders at the top when we have real
+    // composition rows with percentage OR quantity data; falls back silently
+    // when the passport is empty (avoids showing a blank summary bar).
+    const compSummary = (() => {
+      const rows = (p.components || []).filter(c => c && c.name && c.name !== "—");
+      if (!rows.length) return null;
+      // Prefer percentages; if none provided, derive them from quantities.
+      const numeric = rows.map(c => {
+        const raw = typeof c.pct === "number" ? c.pct : parseFloat(String(c.pct || "").replace(",", "."));
+        return { name: c.name, pct: Number.isFinite(raw) ? raw : null, recycled: c.recycled };
+      });
+      const hasPct = numeric.some(x => x.pct != null);
+      if (!hasPct) return null;
+      const withPct = numeric.filter(x => x.pct != null);
+      const total = withPct.reduce((a, x) => a + x.pct, 0);
+      // Normalise when the source values are quantities (won't sum to 100) —
+      // makes the pill labels feel like a t-shirt label whatever the input.
+      const normalise = total > 0 && (total < 50 || total > 150);
+      const items = withPct
+        .map(x => ({ ...x, share: normalise ? (x.pct / total) * 100 : x.pct }))
+        .sort((a, b) => b.share - a.share)
+        .slice(0, 6);
+      return { items, normalised: normalise, note: normalise ? (it ? "Percentuali normalizzate dalle quantità" : "Percentages normalized from quantities") : null };
+    })();
+
     const bomNodes = [
       { id: "xps", name: "Polistirene espanso estruso (XPS)", pct: 94.5, recycled: 12, supplier: "Levery srl", supplierIdx: 0, children: [
         { id: "xps-v", name: it?"Granuli XPS vergini":"Virgin XPS granules", pct: 82.5, origin: "UE", supplier: "Levery srl", supplierIdx: 0 },
@@ -4254,6 +4281,26 @@ function PublicDPPView({ onNavigate, L, isSpecific = false, dppData = null, imag
       </div>);
     };
     return (<div>
+      {compSummary && (
+        <div style={{ marginBottom: 12, padding: "12px 14px", borderRadius: 10, border: `1px solid ${T.border}`, background: T.bg }}>
+          <div style={{ fontSize: 10, fontWeight: 700, color: T.textSec, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}>
+            <I d={ic.layers} size={11} color={T.accentDark || T.accent} />
+            {it ? "Composizione (sintesi)" : "Composition (at a glance)"}
+          </div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+            {compSummary.items.map((x, i) => (
+              <span key={i} style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "4px 10px", borderRadius: 999, fontSize: 12, fontWeight: 600, background: x.recycled ? T.accentSoft : T.bgSoft, border: `1px solid ${x.recycled ? T.accent + "40" : T.borderLight}`, color: T.textDark }}>
+                <span style={{ fontFamily: mono, color: T.accentDark || T.accent }}>{x.share.toFixed(x.share >= 10 ? 0 : 1)}%</span>
+                <span>{x.name.length > 30 ? x.name.slice(0, 28) + "…" : x.name}</span>
+                {x.recycled && <span title={it ? "Contenuto riciclato" : "Recycled content"} style={{ fontSize: 10 }}>♻</span>}
+              </span>
+            ))}
+          </div>
+          {compSummary.note && (
+            <div style={{ marginTop: 6, fontSize: 10, color: T.textSec, fontStyle: "italic" }}>{compSummary.note}</div>
+          )}
+        </div>
+      )}
       <div style={{ display: "flex", flexWrap: "wrap", borderRadius: 10, border: `1px solid ${T.border}`, overflow: "hidden", marginBottom: 10 }}>
         {/* Map - left (stacks on top on mobile) */}
         <div style={{ minWidth: 220, width: "35%", flexShrink: 0, flexGrow: 0, padding: 10, background: T.bgSoft, borderRight: `1px solid ${T.borderLight}` }}>
