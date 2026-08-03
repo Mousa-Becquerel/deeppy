@@ -2278,6 +2278,112 @@ function DonutChart({ seg }) {
   </svg>);
 }
 
+// ─── Version-history tab with inline edit/delete (item 12) ───────────────
+// Renders the real version list from state, but each row has hover-revealed
+// Edit + Delete affordances that PATCH / DELETE against the backend and
+// update the parent's state on success.
+function VersionsTab({ L, versions, productId, onChange }) {
+  const it = L?.lang === "it";
+  const [editingId, setEditingId] = useState(null);
+  const [editLabel, setEditLabel] = useState("");
+  const [editSummary, setEditSummary] = useState("");
+  const [busyId, setBusyId] = useState(null);
+  const [error, setError] = useState(null);
+
+  const startEdit = (v) => {
+    setEditingId(v.id);
+    setEditLabel(v.label || "");
+    setEditSummary(v.change_summary || "");
+    setError(null);
+  };
+  const cancelEdit = () => { setEditingId(null); setError(null); };
+
+  const saveEdit = async (v) => {
+    if (!productId) return;
+    setBusyId(v.id); setError(null);
+    try {
+      const r = await fetch(`/api/products/${productId}/versions/${v.id}`, {
+        method: "PATCH", credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ label: editLabel, change_summary: editSummary }),
+      });
+      if (!r.ok) {
+        const detail = (await r.json().catch(() => ({}))).detail || r.statusText;
+        setError(`Save failed (HTTP ${r.status}): ${detail}`);
+      } else {
+        const updated = await r.json();
+        onChange(versions.map(x => x.id === v.id ? { ...x, ...updated } : x));
+        setEditingId(null);
+      }
+    } catch (e) {
+      setError(`Save failed: ${String(e)}`);
+    } finally { setBusyId(null); }
+  };
+
+  const removeVersion = async (v) => {
+    if (!productId) return;
+    if (!window.confirm(it ? `Eliminare la versione ${v.label || ""}?` : `Delete version ${v.label || ""}?`)) return;
+    setBusyId(v.id); setError(null);
+    try {
+      const r = await fetch(`/api/products/${productId}/versions/${v.id}`, {
+        method: "DELETE", credentials: "include",
+      });
+      if (!r.ok) {
+        const detail = (await r.json().catch(() => ({}))).detail || r.statusText;
+        setError(`Delete failed (HTTP ${r.status}): ${detail}`);
+      } else {
+        onChange(versions.filter(x => x.id !== v.id));
+      }
+    } catch (e) {
+      setError(`Delete failed: ${String(e)}`);
+    } finally { setBusyId(null); }
+  };
+
+  return (<Card title={it?"Cronologia":"History"} iconD={ic.clock}>
+    {error && (
+      <div style={{ padding: "8px 18px", margin: "8px 18px 0", borderRadius: 6, background: T.redSoft || "#FEE2E2", color: T.red, fontSize: 12 }}>
+        {error} <button onClick={() => setError(null)} style={{ marginLeft: 8, background: "none", border: "none", color: T.red, cursor: "pointer" }}>✕</button>
+      </div>
+    )}
+    {versions.length === 0
+      ? <div style={{ padding: "16px 18px", fontSize: 13, color: T.textSec, fontStyle: "italic" }}>{it?"Nessuna versione registrata. Le modifiche salvate creano una nuova versione.":"No versions yet. Saved edits create a new version."}</div>
+      : versions.map((v, i) => {
+        const isEd = editingId === v.id;
+        const isBusy = busyId === v.id;
+        return (
+          <div key={v.id || i} style={{ display: "flex", alignItems: "flex-start", gap: 12, padding: "12px 18px", borderBottom: i < versions.length - 1 ? `1px solid ${T.borderLight}` : "none", opacity: isBusy ? 0.5 : 1 }}>
+            {isEd ? (
+              <input value={editLabel} onChange={e => setEditLabel(e.target.value)} placeholder={it ? "Etichetta (es. v1.0, Released)" : "Label (e.g. v1.0, Released)"} style={{ width: 180, padding: "4px 8px", borderRadius: 4, border: `1px solid ${T.accent}`, fontSize: 12, fontFamily: font }} />
+            ) : (
+              <Badge color={T.accentDark} bg={T.accentSoft}>{v.label || `v${versions.length - i}`}</Badge>
+            )}
+            <div style={{ flex: 1 }}>
+              {isEd ? (
+                <input value={editSummary} onChange={e => setEditSummary(e.target.value)} placeholder={it ? "Descrizione della modifica" : "Change summary"} style={{ width: "100%", padding: "4px 8px", borderRadius: 4, border: `1px solid ${T.accent}`, fontSize: 13, fontFamily: font, marginBottom: 4 }} />
+              ) : (
+                <div style={{ fontSize: 13, color: T.textDark }}>{v.change_summary || (it ? "Modifica salvata" : "Saved change")}</div>
+              )}
+              <div style={{ fontSize: 11, color: T.textSec }}>{v.created_at ? new Date(v.created_at).toLocaleDateString(it ? "it-IT" : "en-US", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }) : ""}</div>
+            </div>
+            <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+              {isEd ? (
+                <>
+                  <button onClick={() => saveEdit(v)} disabled={isBusy} title={it?"Salva":"Save"} style={{ background: T.accent, color: T.navy, border: "none", cursor: isBusy?"wait":"pointer", padding: "4px 10px", borderRadius: 4, fontSize: 11, fontWeight: 700, fontFamily: font }}>{it?"Salva":"Save"}</button>
+                  <button onClick={cancelEdit} disabled={isBusy} title={it?"Annulla":"Cancel"} style={{ background: "none", border: `1px solid ${T.border}`, cursor: isBusy?"wait":"pointer", padding: "4px 10px", borderRadius: 4, fontSize: 11, color: T.textSec, fontFamily: font }}>{it?"Annulla":"Cancel"}</button>
+                </>
+              ) : (
+                <>
+                  <button onClick={() => startEdit(v)} title={it?"Modifica":"Edit"} style={{ background: "none", border: "none", cursor: "pointer", padding: 4, color: T.textSec }}><I d={ic.edit} size={13} color={T.textSec} /></button>
+                  <button onClick={() => removeVersion(v)} title={it?"Elimina":"Delete"} style={{ background: "none", border: "none", cursor: "pointer", padding: 4 }}><I d={ic.x} size={14} color={T.red} /></button>
+                </>
+              )}
+            </div>
+          </div>);
+      })}
+  </Card>);
+}
+
+
 // ─── APP VIEW (PUBLISHED / PREVIEW) ─────────────────────
 function AppView({ onNavigate, L, product, onAddProjectDPP, onPublish }) {
   const _ = k => t(k, L?.lang);
@@ -2890,18 +2996,12 @@ body{font-family:'Inter',sans-serif;color:#1E293B;font-size:12px;line-height:1.5
         </div>
       </div>);
     }
-    case "versioni": return (<Card title={it?"Cronologia":"History"} iconD={ic.clock}>
-      {versions.length === 0
-        ? <div style={{ padding: "16px 18px", fontSize: 13, color: T.textSec, fontStyle: "italic" }}>{it?"Nessuna versione registrata. Le modifiche salvate creano una nuova versione.":"No versions yet. Saved edits create a new version."}</div>
-        : versions.map((v, i) => (
-          <div key={v.id || i} style={{ display: "flex", alignItems: "flex-start", gap: 12, padding: "12px 18px", borderBottom: i < versions.length - 1 ? `1px solid ${T.borderLight}` : "none" }}>
-            <Badge color={T.accentDark} bg={T.accentSoft}>{v.label || `v${versions.length - i}`}</Badge>
-            <div style={{ flex: 1 }}>
-              <div style={{ fontSize: 13, color: T.textDark }}>{v.change_summary || (it ? "Modifica salvata" : "Saved change")}</div>
-              <div style={{ fontSize: 11, color: T.textSec }}>{v.created_at ? new Date(v.created_at).toLocaleDateString(it ? "it-IT" : "en-US", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }) : ""}</div>
-            </div>
-          </div>))}
-    </Card>);
+    case "versioni": return (<VersionsTab
+      L={L}
+      versions={versions}
+      productId={product?.id}
+      onChange={setVersions}
+    />);
     default: return null;}};
 
   return (

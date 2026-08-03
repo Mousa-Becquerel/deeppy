@@ -797,6 +797,51 @@ async def list_versions(product_id: str, user: dict = Depends(get_current_user))
         ]
 
 
+class VersionUpdate(BaseModel):
+    label: Optional[str] = None
+    change_summary: Optional[str] = None
+
+
+@app.patch("/api/products/{product_id}/versions/{version_id}")
+async def update_version_endpoint(
+    product_id: str, version_id: str, body: VersionUpdate,
+    user: dict = Depends(require_role("admin", "editor")),
+):
+    """Edit a version's label / change_summary — client feedback item 12.
+    The auto-generated labels ('v1', 'v2') and change summaries ('Manual edit')
+    weren't accurate for their workflow; users need to rewrite them."""
+    with session_scope() as db:
+        if not _owned_product(db, product_id, user["company_id"]):
+            raise HTTPException(404, "Product not found")
+        v = repo.get_version(db, version_id)
+        if not v or v.product_id != product_id:
+            raise HTTPException(404, "Version not found")
+        updated = repo.update_version(
+            db, version_id, label=body.label, change_summary=body.change_summary,
+        )
+        return {
+            "id": updated.id, "label": updated.label,
+            "change_summary": updated.change_summary,
+            "created_at": updated.created_at.isoformat() if updated.created_at else None,
+        }
+
+
+@app.delete("/api/products/{product_id}/versions/{version_id}")
+async def delete_version_endpoint(
+    product_id: str, version_id: str,
+    user: dict = Depends(require_role("admin", "editor")),
+):
+    """Delete an unwanted auto-snapshot. Passport itself is unaffected."""
+    with session_scope() as db:
+        if not _owned_product(db, product_id, user["company_id"]):
+            raise HTTPException(404, "Product not found")
+        v = repo.get_version(db, version_id)
+        if not v or v.product_id != product_id:
+            raise HTTPException(404, "Version not found")
+        repo.delete_version(db, version_id)
+        return {"deleted": True}
+
+
 def _messages_to_thread(blob) -> list[dict]:
     """Render serialized pydantic-ai messages into a simple UI thread."""
     thread = []

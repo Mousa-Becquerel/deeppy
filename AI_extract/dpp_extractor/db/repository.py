@@ -515,3 +515,34 @@ def list_versions(db: Session, product_id: str) -> list[models.Version]:
 
 def count_versions(db: Session, product_id: str) -> int:
     return len(list_versions(db, product_id))
+
+
+def get_version(db: Session, version_id: str) -> Optional[models.Version]:
+    return db.get(models.Version, version_id)
+
+
+def update_version(
+    db: Session, version_id: str, *,
+    label: Optional[str] = None,
+    change_summary: Optional[str] = None,
+) -> Optional[models.Version]:
+    """Edit a version's user-visible label + change summary. Passport snapshot
+    stays immutable — this endpoint only touches metadata the user annotates."""
+    v = db.get(models.Version, version_id)
+    if not v:
+        return None
+    if label is not None:
+        v.label = label or None       # empty string → NULL
+    if change_summary is not None:
+        v.change_summary = change_summary or None
+    db.flush()
+    return v
+
+
+def delete_version(db: Session, version_id: str) -> bool:
+    v = db.get(models.Version, version_id)
+    if not v:
+        return False
+    db.delete(v)
+    db.flush()
+    return True
