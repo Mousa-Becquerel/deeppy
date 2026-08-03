@@ -29,6 +29,7 @@ from .postprocess import (
     populate_documents_section,
     simplify_multi_variant_product_name,
 )
+from .variant_detect import populate_detected_variants
 
 logger = logging.getLogger(__name__)
 
@@ -173,6 +174,7 @@ class PipelineOrchestrator:
         populate_compliance_presence(passport, classifications, all_filenames)
         populate_documents_section(passport, classifications, all_filenames)
         simplify_multi_variant_product_name(passport, bom_data_list, all_filenames)
+        populate_detected_variants(passport)   # item 1 — for the SKU selector UI
         verify_grounded_strings(passport, file_paths)
 
         elapsed = time.time() - start

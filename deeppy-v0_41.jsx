@@ -1455,6 +1455,12 @@ function AppEditView({ onNavigate, L, dppData, product, onAddProjectDPP, onSave 
   // Applied on Save Draft as APPENDS (not path-edits) to the corresponding
   // arrays. Shape: { performance: [PerformanceValue], product_certifications: [{name, reference_number}] }.
   const [additions, setAdditions] = useState({ performance: [], product_certifications: [] });
+  // Item 1: SKU-variant selector. When the source docs describe multiple
+  // variants (e.g. a brick in 5 thicknesses), the extractor produces one perf
+  // row per variant. `selectedVariant` filters which of those rows the user
+  // sees. null = show all. Purely client-side for now; refresh resets to
+  // whatever the server had persisted (via passport.metadata.selected_variant).
+  const [selectedVariant, setSelectedVariant] = useState(null);
 
   // Persist edits: deep-merge into the passport and PATCH via the parent.
   // On success: clear `edits`, flash "Saved!". On failure: KEEP `edits` so
@@ -1527,6 +1533,20 @@ function AppEditView({ onNavigate, L, dppData, product, onAddProjectDPP, onSave 
   const initCompleteness = stats?.completeness ?? 87;
   const [completeness, setCompleteness] = useState(initCompleteness);
   useEffect(() => { if (stats?.completeness != null) setCompleteness(Math.round(stats.completeness)); }, [stats?.completeness]);
+  // Item 1: sync `selectedVariant` from server-persisted choice on load /
+  // passport swap. Runs once per new passport reference.
+  const detectedVariants = pp?.metadata?.detected_variants || [];
+  const serverSelectedVariant = pp?.metadata?.selected_variant ?? null;
+  useEffect(() => { setSelectedVariant(serverSelectedVariant); }, [serverSelectedVariant]);
+  // Item 1: qualifier matcher. Rows whose property_name ends in a "(qualifier)"
+  // are variant-specific; rows without a trailing qualifier are variant-agnostic
+  // and always visible.
+  const variantMatches = (name) => {
+    if (!selectedVariant) return true;                    // "show all" mode
+    const m = /\(([^)]+)\)\s*$/.exec(name || "");
+    if (!m) return true;                                  // no qualifier → agnostic
+    return m[1].trim().toLowerCase() === selectedVariant.toLowerCase();
+  };
   // Item 3: `confirmed` and the liveCompleteness derivation both need to be
   // in scope BEFORE displayedPct references them a few lines down. Declaring
   // them here (was previously ~86 lines lower) avoids a temporal-dead-zone
@@ -1701,7 +1721,10 @@ function AppEditView({ onNavigate, L, dppData, product, onAddProjectDPP, onSave 
     </>);
     case "composizione": return (<ComponentiTab editMode={true} onNavigate={onNavigate} L={L} dppData={dppData} />);
     case "prestazioni": {
-      const perfValues = hasAI ? (pp?.performance?.values || []) : null;
+      const perfValuesRaw = hasAI ? (pp?.performance?.values || []) : null;
+      // Item 1: apply SKU-variant filter first so the "expected/other" counts
+      // reflect only what's currently visible.
+      const perfValues = perfValuesRaw ? perfValuesRaw.filter(pv => variantMatches(pv.property_name)) : null;
       // Item 6: split into expected (ontology-recognized) and other (AI extras).
       // is_expected defaults to true for legacy passports that don't have the
       // flag, so old data renders unchanged. New extractions get filtered.
@@ -1981,6 +2004,56 @@ function AppEditView({ onNavigate, L, dppData, product, onAddProjectDPP, onSave 
                 <div>{saveError}. {L?.lang==="it"?"Le tue modifiche sono ancora presenti nei campi — clicca 'Riprova' per salvarle di nuovo.":"Your edits are still in the fields — click 'Retry' to save them again."}</div>
               </div>
               <button onClick={()=>setSaveError(null)} style={{ background: "none", border: "none", cursor: "pointer", color: T.red, padding: 2 }}><I d={ic.x} size={14} color={T.red} /></button>
+            </div>
+          )}
+          {/* Item 1: SKU-variant selector. Shows only when the extractor
+              detected multiple variant qualifiers (e.g. thicknesses, sizes,
+              window/door configs) across the performance rows. Filters what
+              the user sees in Prestazioni; "All variants" clears the filter. */}
+          {hasAI && detectedVariants.length > 1 && (
+            <div style={{ marginBottom: 16, padding: "12px 16px", borderRadius: 10, background: T.accentSoft, border: `1px solid ${T.accent}` }}>
+              <div style={{ display: "flex", alignItems: "flex-start", gap: 10, marginBottom: 10 }}>
+                <I d={ic.layers} size={16} color={T.accentDark} style={{ flexShrink: 0, marginTop: 2 }} />
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: T.accentDark, marginBottom: 2 }}>
+                    {L?.lang==="it" ? `Rilevate ${detectedVariants.length} varianti di prodotto` : `${detectedVariants.length} product variants detected`}
+                  </div>
+                  <div style={{ fontSize: 11, color: T.textSec, lineHeight: 1.5 }}>
+                    {L?.lang==="it"
+                      ? "I documenti descrivono più varianti dello stesso prodotto (spessori, dimensioni, configurazioni). Seleziona una variante per filtrare le prestazioni visualizzate, o mostra tutte."
+                      : "The source documents describe multiple variants of the same product (thicknesses, sizes, configurations). Pick one to filter the performance rows, or show all."}
+                  </div>
+                </div>
+              </div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                <button
+                  onClick={() => setSelectedVariant(null)}
+                  style={{
+                    padding: "5px 12px", borderRadius: 999, fontSize: 11, fontWeight: 700,
+                    fontFamily: font, cursor: "pointer",
+                    border: `1px solid ${selectedVariant == null ? T.accentDark : T.border}`,
+                    background: selectedVariant == null ? T.accentDark : T.bg,
+                    color: selectedVariant == null ? "#fff" : T.textDark,
+                  }}
+                >
+                  {L?.lang==="it" ? "Tutte le varianti" : "All variants"}
+                </button>
+                {detectedVariants.map(v => (
+                  <button
+                    key={v}
+                    onClick={() => setSelectedVariant(v)}
+                    style={{
+                      padding: "5px 12px", borderRadius: 999, fontSize: 11, fontWeight: 700,
+                      fontFamily: font, cursor: "pointer",
+                      border: `1px solid ${selectedVariant === v ? T.accentDark : T.border}`,
+                      background: selectedVariant === v ? T.accentDark : T.bg,
+                      color: selectedVariant === v ? "#fff" : T.textDark,
+                    }}
+                  >
+                    {v}
+                  </button>
+                ))}
+              </div>
             </div>
           )}
           {/* Document update upload zone */}

@@ -3,6 +3,8 @@ Full Digital Product Passport model — assembles all sections.
 This is the top-level output of the extraction pipeline.
 """
 
+from typing import Optional
+
 from pydantic import BaseModel, Field
 
 from .overview import OverviewSection
@@ -20,6 +22,19 @@ class PassportMetadata(BaseModel):
     source_documents: list[str] = Field(default_factory=list, description="Filenames processed")
     extraction_model: str = Field(default="gemini-2.0-flash", description="LLM model used")
     extraction_version: str = Field(default="1.0.0", description="Extractor version")
+    # Item 1 (client feedback): when the source docs describe multiple product
+    # variants (e.g. a brick in 5 thicknesses), the extraction returns duplicate
+    # performance rows — one per variant. We detect the variants post-extraction
+    # and expose them so the UI can offer a "which SKU is this passport for?"
+    # selector that filters the displayed rows.
+    detected_variants: list[str] = Field(
+        default_factory=list,
+        description="Unique variant qualifiers found in performance rows"
+    )
+    selected_variant: Optional[str] = Field(
+        None,
+        description="User's choice among detected_variants; null = show all"
+    )
 
 
 class DigitalProductPassport(BaseModel):
