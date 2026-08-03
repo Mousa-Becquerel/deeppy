@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import QRCode from "qrcode";
 
 // ─── Analytics Init (conditional on consent) ───
@@ -1428,10 +1428,17 @@ function _ef(passport, path) {
   if (typeof obj !== "object" || !("value" in obj)) return {};
   const src = obj.source;
   const srcStr = src ? (typeof src === "string" ? src : `${src.document_name || ""}${src.page ? `, p. ${src.page}` : ""}`) : null;
+  // Item 4 (full): also expose the structured source so EF can turn the
+  // "Source: X, p. Y" affordance into a link that opens the PDF at the right
+  // page. String-only sources (legacy) get srcRef=null and stay text.
+  const srcRef = (src && typeof src === "object" && src.document_name)
+    ? { filename: src.document_name, page: src.page || null }
+    : null;
   return {
     v: obj.value != null ? String(obj.value) : null,
     c: obj.confidence || "low",
     s: srcStr,
+    srcRef,
     n: obj.note || null,
     path,
   };
@@ -1547,6 +1554,24 @@ function AppEditView({ onNavigate, L, dppData, product, onAddProjectDPP, onSave 
     if (!m) return true;                                  // no qualifier → agnostic
     return m[1].trim().toLowerCase() === selectedVariant.toLowerCase();
   };
+  // Item 4 (full): resolve source filenames to uploaded document ids so we
+  // can build "open PDF at page N" links from the extracted SourceReference.
+  // Case-insensitive match — filenames as written in DoPs vs the uploaded
+  // basename tend to differ only in case.
+  const docByFilename = useMemo(() => {
+    const m = new Map();
+    for (const d of (product?.documents || [])) {
+      if (d?.filename) m.set(d.filename.toLowerCase(), d.id);
+    }
+    return m;
+  }, [product?.documents]);
+  const sourceHref = (ref) => {
+    if (!ref?.filename || !product?.id) return null;
+    const docId = docByFilename.get(ref.filename.toLowerCase());
+    if (!docId) return null;                              // filename doesn't map to uploaded PDF
+    // Browsers understand #page=N in the PDF viewer URL fragment.
+    return `/api/products/${product.id}/documents/${docId}${ref.page ? `#page=${ref.page}` : ""}`;
+  };
   // Item 3: `confirmed` and the liveCompleteness derivation both need to be
   // in scope BEFORE displayedPct references them a few lines down. Declaring
   // them here (was previously ~86 lines lower) avoids a temporal-dead-zone
@@ -1600,7 +1625,7 @@ function AppEditView({ onNavigate, L, dppData, product, onAddProjectDPP, onSave 
     ? (overallPct != null ? Math.round(overallPct) : liveCompleteness)
     : liveCompleteness;
 
-  const EF = ({ id, l, v, c, n, s, path }) => {
+  const EF = ({ id, l, v, c, n, s, srcRef, path }) => {
     const confState = confirmed[id]; // "auto" | "manual" | undefined
     // Show the edited value if the user changed this field (tracked by path).
     const edited = path && (path in edits) ? edits[path] : undefined;
@@ -1609,6 +1634,9 @@ function AppEditView({ onNavigate, L, dppData, product, onAddProjectDPP, onSave 
     const realC = isDirty ? "high" : (confState || (c === "medium" ? "medium" : c));
     const bc = (realC==="high"||realC==="auto"||realC==="manual")?T.accent:realC==="medium"?T.amber:T.red;
     const isEd = editingField===id;
+    // Item 4 (full): if the source references a document we have on disk,
+    // render the "Source: X, p. Y" text as a link to the PDF at that page.
+    const href = sourceHref(srcRef);
     return (
       <div style={{ marginBottom: 14 }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 3 }}>
@@ -1621,7 +1649,9 @@ function AppEditView({ onNavigate, L, dppData, product, onAddProjectDPP, onSave 
         <div onClick={() => setEditingField(isEd?null:id)} onBlur={() => { if (isEd && c === "medium") setConfirmed(p => ({...p, [id]: "manual"})); }} style={{ padding: "9px 12px", borderRadius: 6, border: isEd?`2px solid ${T.accent}`:`1px solid ${bc}30`, borderLeft: `3px solid ${bc}`, background: isEd?T.accentSoft+"30":T.bg, fontSize: 13, color: shownV?T.textDark:T.textSec, fontStyle: shownV?"normal":"italic", cursor: "text", lineHeight: 1.5 }}>
           {isEd?<input autoFocus defaultValue={shownV ?? ""} onChange={e => path && setEdits(p => ({ ...p, [path]: e.target.value }))} style={{ width: "100%", border: "none", outline: "none", fontSize: 13, fontWeight: 600, color: T.textDark, background: "transparent", fontFamily: font }} />:(shownV||"Missing data — click to enter")}
         </div>
-        {s&&!n&&<div style={{ fontSize: 10, color: T.textSec, marginTop: 2, paddingLeft: 14, display: "flex", alignItems: "center", gap: 3, cursor: "pointer" }} title="Click to view source document"><I d={ic.file} size={10} color={T.textSec} /> {_("source")}: <span style={{ textDecoration: "underline", color: T.accentDark }}>{s}</span></div>}
+        {s&&!n&&<div style={{ fontSize: 10, color: T.textSec, marginTop: 2, paddingLeft: 14, display: "flex", alignItems: "center", gap: 3 }} title={href ? (L?.lang==="it"?"Apri il documento sorgente":"Open source document") : s}><I d={ic.file} size={10} color={T.textSec} /> {_("source")}: {href
+          ? <a href={href} target="_blank" rel="noopener noreferrer" style={{ textDecoration: "underline", color: T.accentDark, cursor: "pointer" }}>{s}</a>
+          : <span style={{ textDecoration: "underline", color: T.accentDark }}>{s}</span>}</div>}
         {n&&!confState&&<div style={{ marginTop: 4, padding: "6px 10px", borderRadius: 5, background: c==="low"?T.redSoft:T.amberSoft, fontSize: 11, color: c==="low"?T.red:"#92400E", lineHeight: 1.5, display: "flex", gap: 6 }}><I d={c==="low"?ic.alert:ic.bolt} size={12} color={c==="low"?T.red:T.amber} /><span>{n}{s?` (${_("source")}: ${s})`:""}</span></div>}
       </div>);};
 
@@ -1745,9 +1775,14 @@ function AppEditView({ onNavigate, L, dppData, product, onAddProjectDPP, onSave 
         const fld = pv.value || {};
         const src = fld.source;
         const srcStr = src ? (typeof src === "string" ? src : `${src.document_name||""}${src.page?`, p. ${src.page}`:""}`) : null;
+        // Item 4 (full): structured ref so EF can render the source as a
+        // page-jump link into the uploaded PDF.
+        const srcRef = (src && typeof src === "object" && src.document_name)
+          ? { filename: src.document_name, page: src.page || null }
+          : null;
         const unitStr = pv.unit ? ` ${pv.unit}` : "";
         const stdStr = pv.test_standard ? ` — ${pv.test_standard}` : "";
-        return <EF key={i} id={`perf-${cat}-${i}`} l={pv.property_name} v={fld.value != null ? `${fld.value}${unitStr}` : null} c={fld.confidence||"low"} s={srcStr ? `${srcStr}${stdStr}` : null} n={fld.note} />;
+        return <EF key={i} id={`perf-${cat}-${i}`} l={pv.property_name} v={fld.value != null ? `${fld.value}${unitStr}` : null} c={fld.confidence||"low"} s={srcStr ? `${srcStr}${stdStr}` : null} srcRef={srcRef} n={fld.note} />;
       };
 
       if (hasAI && byCategory) {
