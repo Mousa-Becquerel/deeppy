@@ -236,6 +236,33 @@ def _build_performance_prompt(family: ProductFamily) -> str:
     )
     lines.append("")
     lines.append(
+        "WHAT COUNTS AS A PRODUCT PERFORMANCE VALUE — read carefully. Only include "
+        "measurements that describe the FINISHED PRODUCT's own physical/mechanical/"
+        "environmental behavior. Do NOT include any of the following, even if the "
+        "document lists them as numbers:"
+    )
+    lines.append("  ✗ Ambient conditions during transport, storage, or installation "
+                 "(e.g., 'ambient temperature: +8°C to +40°C', 'storage humidity < 80%'). "
+                 "These describe the ENVIRONMENT, not the product.")
+    lines.append("  ✗ Packaging characteristics — pallet weight, pallet dimensions, "
+                 "boxes per pallet, plastic wrap thickness. These describe the PACKAGING, "
+                 "not the product.")
+    lines.append("  ✗ Application/mixing parameters — water demand for mixing mortar, "
+                 "recommended trowel size, working time, pot life. These describe the "
+                 "INSTALLATION PROCESS, not the finished product.")
+    lines.append("  ✗ Machine setpoints from a data sheet (rotation speeds, torque, motor "
+                 "voltage) — these describe MACHINERY, not the product itself.")
+    lines.append("  ✓ Compressive/flexural/tensile strength, thermal conductivity, "
+                 "acoustic Rw, fire class, water absorption, EPD environmental indicators. "
+                 "Yes, always extract these when present.")
+    lines.append(
+        "If a value is a genuine product measurement but not on the canonical list above, "
+        "include it — the system will surface it in a separate 'Other properties' section "
+        "for user review. When in doubt whether a number is a product spec or something "
+        "else, OMIT it rather than guessing."
+    )
+    lines.append("")
+    lines.append(
         "CATEGORY — set the 'category' field on every performance value to ONE of: "
         "'Mechanical', 'Thermal', 'Acoustic', 'Fire', 'Durability', 'Environmental'. "
         "Use 'Other' ONLY as a last resort. Rules per category:"

@@ -505,6 +505,12 @@ def _map_to_extraction_output(
             value=f(pv.value),
             unit=pv.unit,
             test_standard=pv.test_standard,
+            # Item 6 (client feedback): tag whether this row matched an
+            # ontology-registered field. Frontend uses this to split known
+            # spec values from noise (ambient temp, packaging weight, etc.).
+            # Option A: GENERIC matches count as expected too, so families
+            # without an explicit registry list still surface most fields.
+            is_expected=norm.matched,
         ))
     # Inject controlled fire/UV resistance as performance values if present
     if simple.performance.fire_resistance:

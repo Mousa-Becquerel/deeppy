@@ -28,6 +28,15 @@ class PerformanceValue(BaseModel):
     test_standard: Optional[str] = Field(
         None, description="Reference test standard (e.g., 'EN 826', 'EN 12667')"
     )
+    # True when property_name matched an entry in the ontology's performance
+    # registry (either the family-specific list OR the GENERIC fallback).
+    # False means the AI extracted something that isn't in any expected-fields
+    # list — we still surface it to the user, but under a collapsed "Other
+    # properties" section rather than mixed in with the recognized spec values.
+    # Default True keeps legacy passports rendering as before.
+    is_expected: bool = Field(
+        True, description="True if the property name is in the ontology registry"
+    )
 
 
 class PerformanceSection(BaseModel):

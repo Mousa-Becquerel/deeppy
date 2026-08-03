@@ -422,8 +422,14 @@ def _merge_performance(passport, extractions, conflicts) -> None:
                 field_candidates, PERFORMANCE_AUTHORITY,
                 f"performance.{key}", conflicts,
             )
-            # Use the first candidate's structure, replace value field
-            winner = candidates[0][0].model_copy(update={"value": best})
+            # Use the first candidate's structure, replace value field.
+            # is_expected: any candidate marking the row as ontology-recognized
+            # wins — a canonical variant in one doc is enough to trust the row
+            # even if another doc's variant didn't match the normalizer.
+            expected_any = any(getattr(c[0], "is_expected", True) for c in candidates)
+            winner = candidates[0][0].model_copy(
+                update={"value": best, "is_expected": expected_any}
+            )
             merged_values.append(winner)
 
     passport.performance.values = merged_values

@@ -1643,30 +1643,63 @@ function AppEditView({ onNavigate, L, dppData, product, onAddProjectDPP, onSave 
     case "composizione": return (<ComponentiTab editMode={true} onNavigate={onNavigate} L={L} dppData={dppData} />);
     case "prestazioni": {
       const perfValues = hasAI ? (pp?.performance?.values || []) : null;
-      const byCategory = perfValues ? perfValues.reduce((acc, pv) => {
+      // Item 6: split into expected (ontology-recognized) and other (AI extras).
+      // is_expected defaults to true for legacy passports that don't have the
+      // flag, so old data renders unchanged. New extractions get filtered.
+      const expectedValues = perfValues ? perfValues.filter(pv => pv.is_expected !== false) : null;
+      const otherValues = perfValues ? perfValues.filter(pv => pv.is_expected === false) : null;
+      const groupByCategory = (arr) => arr.reduce((acc, pv) => {
         const cat = pv.category || "Other";
         if (!acc[cat]) acc[cat] = [];
         acc[cat].push(pv);
         return acc;
-      }, {}) : null;
+      }, {});
+      const byCategory = expectedValues ? groupByCategory(expectedValues) : null;
+      const otherByCategory = otherValues && otherValues.length ? groupByCategory(otherValues) : null;
       const catIcons = { Mechanical: ic.shield, Thermal: ic.thermo, Fire: ic.alert, Acoustic: ic.bolt, Durability: ic.leaf, Environmental: ic.leaf, Other: ic.chart };
       const catLabels = { Mechanical: _("mechPerf"), Thermal: _("thermPerf"), Fire: L?.lang==="it"?"Reazione al fuoco":"Fire reaction", Acoustic: _("acoustics"), Durability: _("durability"), Environmental: L?.lang==="it"?"Ambientale":"Environmental", Other: L?.lang==="it"?"Altro":"Other" };
 
+      const renderPerf = (pv, i, cat) => {
+        const fld = pv.value || {};
+        const src = fld.source;
+        const srcStr = src ? (typeof src === "string" ? src : `${src.document_name||""}${src.page?`, p. ${src.page}`:""}`) : null;
+        const unitStr = pv.unit ? ` ${pv.unit}` : "";
+        const stdStr = pv.test_standard ? ` — ${pv.test_standard}` : "";
+        return <EF key={i} id={`perf-${cat}-${i}`} l={pv.property_name} v={fld.value != null ? `${fld.value}${unitStr}` : null} c={fld.confidence||"low"} s={srcStr ? `${srcStr}${stdStr}` : null} n={fld.note} />;
+      };
+
       if (hasAI && byCategory) {
-        return (<div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
-          {Object.entries(byCategory).map(([cat, props]) => (
-            <ColSec key={cat} title={catLabels[cat] || cat} iconD={catIcons[cat] || ic.bolt} badge={<Badge color={T.textSec} bg={T.bgSoft}>{props.length}</Badge>}>
-              {props.map((pv, i) => {
-                const fld = pv.value || {};
-                const src = fld.source;
-                const srcStr = src ? (typeof src === "string" ? src : `${src.document_name||""}${src.page?`, p. ${src.page}`:""}`) : null;
-                const unitStr = pv.unit ? ` ${pv.unit}` : "";
-                const stdStr = pv.test_standard ? ` — ${pv.test_standard}` : "";
-                return <EF key={i} id={`perf-${cat}-${i}`} l={pv.property_name} v={fld.value != null ? `${fld.value}${unitStr}` : null} c={fld.confidence||"low"} s={srcStr ? `${srcStr}${stdStr}` : null} n={fld.note} />;
-              })}
-            </ColSec>
-          ))}
-        </div>);
+        return (<>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+            {Object.entries(byCategory).map(([cat, props]) => (
+              <ColSec key={cat} title={catLabels[cat] || cat} iconD={catIcons[cat] || ic.bolt} badge={<Badge color={T.textSec} bg={T.bgSoft}>{props.length}</Badge>}>
+                {props.map((pv, i) => renderPerf(pv, i, cat))}
+              </ColSec>
+            ))}
+          </div>
+          {otherByCategory && (
+            <div style={{ marginTop: 16 }}>
+              <ColSec
+                title={L?.lang==="it" ? "Altre proprietà (non riconosciute)" : "Other properties (unrecognized)"}
+                iconD={ic.alert}
+                badge={<Badge color={T.textSec} bg={T.bgSoft}>{otherValues.length}</Badge>}
+                defaultOpen={false}
+              >
+                <div style={{ padding: "8px 12px", marginBottom: 10, borderRadius: 6, background: T.amberSoft, fontSize: 11, color: "#92400E", lineHeight: 1.5 }}>
+                  {L?.lang==="it"
+                    ? "Valori estratti dai documenti che non corrispondono a proprietà standard per questa famiglia di prodotti. Verifica manualmente prima di pubblicare — potrebbero essere parametri ambientali, di trasporto o di installazione anziché caratteristiche del prodotto."
+                    : "Values extracted from documents that don't match standard properties for this product family. Review manually before publishing — these may be environmental, transport, or installation parameters rather than product characteristics."}
+                </div>
+                {Object.entries(otherByCategory).map(([cat, props]) => (
+                  <div key={cat} style={{ marginBottom: 10 }}>
+                    <div style={{ fontSize: 10, fontWeight: 700, color: T.textSec, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 6 }}>{catLabels[cat] || cat}</div>
+                    {props.map((pv, i) => renderPerf(pv, i, `other-${cat}`))}
+                  </div>
+                ))}
+              </ColSec>
+            </div>
+          )}
+        </>);
       }
 
       return (<div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
@@ -2629,8 +2662,13 @@ body{font-family:'Inter',sans-serif;color:#1E293B;font-size:12px;line-height:1.5
       if (hasAI) {
         const vals = pp?.performance?.values || [];
         if (!vals.length) return <Card title={_("performance")} iconD={ic.bolt}><div style={{ padding: "16px 18px", fontSize: 13, color: T.textSec }}>{it?"Nessun dato prestazionale estratto.":"No performance data extracted."}</div></Card>;
+        // Item 6: only the expected values appear on the public/preview view.
+        // "Other properties (unrecognized)" from the editor stays private —
+        // published DPPs should show only vetted spec values.
+        const expectedVals = vals.filter(v => v.is_expected !== false);
+        const displayVals = expectedVals.length ? expectedVals : vals;
         const cats = {};
-        vals.forEach(v => { const c = v.category || "Other"; (cats[c] = cats[c] || []).push(v); });
+        displayVals.forEach(v => { const c = v.category || "Other"; (cats[c] = cats[c] || []).push(v); });
         const catIcon = { Mechanical: ic.shield, Thermal: ic.thermo, Acoustic: ic.bolt, Fire: ic.bolt, Durability: ic.leaf, Environmental: ic.leaf, Other: ic.bolt };
         return <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
           {Object.entries(cats).map(([cat, items]) => (
