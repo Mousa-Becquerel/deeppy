@@ -947,12 +947,17 @@ function ComponentiTab({ editMode, onNavigate, L, dppData }) {
     // uploaded).
     const descSrc = (descField && typeof descField === "object" && descField.source) || null;
     const realSource = (descSrc && (descSrc.document_name || descSrc.snippet)) || null;
+    // Track WHERE the source label came from so item 15's supplier-hide
+    // toggle can suppress supplier-derived labels while keeping doc-derived
+    // ones visible.
+    const supplierFallback = !realSource && supName && supName !== "-" ? supName : null;
     return {
       id: _mv(m, "id_code") || m.material_id || ("mat" + i),
       linked: false,
       genericName: _mv(m, "description") || (it ? "Materiale" : "Material"),
       detail: parts.join(" — ") || null,
-      source: realSource || (supName && supName !== "-" ? supName : null),
+      source: realSource || supplierFallback,
+      sourceKind: realSource ? "doc" : (supplierFallback ? "supplier" : null),
       conf: (descField && typeof descField === "object" && descField.confidence) || "high",
     };
   });
@@ -1007,6 +1012,10 @@ function ComponentiTab({ editMode, onNavigate, L, dppData }) {
     setNewName(""); setShowAdd(false);
   };
   const [showAdd, setShowAdd] = useState(false);
+  // Item 15 (client feedback): let the user show/hide supplier names in the
+  // published DPP. Some manufacturers can't or won't expose their supply
+  // chain publicly, but still want the composition itself to be visible.
+  const [showSuppliers, setShowSuppliers] = useState(true);
 
   return (
     <div>
@@ -1017,6 +1026,20 @@ function ComponentiTab({ editMode, onNavigate, L, dppData }) {
             <span style={{ fontSize: 15, fontWeight: 700, color: T.textDark }}>{_("productStructure")}</span>
             <Badge color={T.accentDark} bg={T.accentSoft}>{components.filter(c=>c.linked).length}/{components.length} collegati</Badge>
           </div>
+          {/* Item 15: supplier visibility toggle. When off, supplier names
+              don't render in this tab or the published DPP. */}
+          {editMode && (
+            <button
+              onClick={() => setShowSuppliers(v => !v)}
+              title={showSuppliers
+                ? (it ? "Nascondi i fornitori nella vista pubblica" : "Hide suppliers in the public view")
+                : (it ? "Mostra i fornitori nella vista pubblica" : "Show suppliers in the public view")}
+              style={{ display: "flex", alignItems: "center", gap: 5, padding: "4px 10px", borderRadius: 5, fontSize: 11, fontWeight: 600, border: `1px solid ${showSuppliers ? T.accent : T.border}`, background: showSuppliers ? T.accentSoft : T.bg, color: showSuppliers ? T.accentDark : T.textSec, cursor: "pointer", fontFamily: font }}
+            >
+              <I d={showSuppliers ? ic.check : ic.x} size={11} color={showSuppliers ? T.accentDark : T.textSec} />
+              {it ? "Fornitori" : "Suppliers"}: {showSuppliers ? (it ? "visibili" : "shown") : (it ? "nascosti" : "hidden")}
+            </button>
+          )}
         </div>
 
         <div style={{ padding: "16px 18px" }}>
@@ -1041,13 +1064,16 @@ function ComponentiTab({ editMode, onNavigate, L, dppData }) {
                     <div style={{ width: 32, height: 32, borderRadius: 6, background: T.accentSoft, display: "flex", alignItems: "center", justifyContent: "center" }}><I d={ic.box} size={14} color={T.accentDark} /></div>
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div onClick={() => onNavigate && onNavigate("app")} style={{ fontSize: 13, fontWeight: 700, color: T.accentDark, cursor: "pointer", textDecoration: "underline", textDecorationColor: T.accentSoft, textUnderlineOffset: 2 }} title="Open DPP for this component">{c.name}</div>
-                      <div style={{ fontSize: 11, color: T.textSec, display: "flex", alignItems: "center", gap: 8 }}><span style={{ display: "flex", alignItems: "center", gap: 3 }}><I d={ic.factory} size={10} color={T.textSec} />{c.prod}</span><span>CO₂: {c.co2} kg</span></div>
+                      <div style={{ fontSize: 11, color: T.textSec, display: "flex", alignItems: "center", gap: 8 }}>
+                        {showSuppliers && <span style={{ display: "flex", alignItems: "center", gap: 3 }}><I d={ic.factory} size={10} color={T.textSec} />{c.prod}</span>}
+                        <span>CO₂: {c.co2} kg</span>
+                      </div>
                     </div>
                     <Conf c={c.conf || "high"} />
                     <Badge color={T.textSec} bg={T.bgSoft}><I d={ic.shield} size={9} color={T.textSec} /> {c.owner}</Badge>
                     {editMode && <button onClick={() => unlinkComp(c.id)} title="Unlink" style={{ background: "none", border: "none", cursor: "pointer", padding: 2 }}><I d={ic.x} size={14} color={T.textSec} /></button>}
                   </div>
-                  {c.source && <div style={{ padding: "0 14px 8px 54px", fontSize: 10, color: T.textSec, display: "flex", alignItems: "center", gap: 3 }}><I d={ic.file} size={10} color={T.textSec} /> {_("source")}: {c.source}</div>}
+                  {c.source && (showSuppliers || c.sourceKind !== "supplier") && <div style={{ padding: "0 14px 8px 54px", fontSize: 10, color: T.textSec, display: "flex", alignItems: "center", gap: 3 }}><I d={ic.file} size={10} color={T.textSec} /> {_("source")}: {c.source}</div>}
                 </div>
               ) : (
                 <div style={{ marginLeft: 20 }}>
@@ -1078,7 +1104,7 @@ function ComponentiTab({ editMode, onNavigate, L, dppData }) {
                       )}
                       {editMode && <button onClick={() => removeComp(c.id)} title="Remove" style={{ background: "none", border: "none", cursor: "pointer", padding: 2 }}><I d={ic.x} size={14} color={T.textSec} /></button>}
                     </div>
-                    {c.detail && c.source && <div style={{ padding: "0 14px 8px 54px", fontSize: 10, color: T.textSec, display: "flex", alignItems: "center", gap: 3 }}><I d={ic.file} size={10} color={T.textSec} /> {_("source")}: {c.source}</div>}
+                    {c.detail && c.source && (showSuppliers || c.sourceKind !== "supplier") && <div style={{ padding: "0 14px 8px 54px", fontSize: 10, color: T.textSec, display: "flex", alignItems: "center", gap: 3 }}><I d={ic.file} size={10} color={T.textSec} /> {_("source")}: {c.source}</div>}
                   </div>
 
                   {/* Inline search for this component */}
@@ -1604,16 +1630,32 @@ function AppEditView({ onNavigate, L, dppData, product, onAddProjectDPP, onSave 
           <EF id="web" l={_("fWebsite")} {...(hasAI ? d("overview.manufacturer.website") : {v:"www.deeppy-materials.it",c:"high",s:"Profile"})} />
           <EF id="contact" l={_("fDataContact")} {...(hasAI ? d("overview.manufacturer.email") : {v:"a.pracucci@levery.it",c:"high",s:"Profile"})} />
           <EF id="phone" l={L?.lang==="it"?"Telefono":"Phone"} {...(hasAI ? d("overview.manufacturer.phone") : {v:"+39 0541 123456",c:"high",s:"Profile"})} />
-          <EF id="certaz" l={_("fCompCerts")} v="ISO 9001:2015, ISO 14001:2015" c="high" s="Profile" />
+          {/* Item 4 (partial): company certs was hardcoded to a demo
+              "ISO 9001:2015, ISO 14001:2015 — source: Profile" that leaked
+              into real product views. Now conditional: real products pull
+              from the extracted compliance.company_certifications list;
+              demo mode keeps the placeholder. */}
+          {hasAI ? (() => {
+            const cc = pp?.compliance?.company_certifications || [];
+            if (!cc.length) return null;
+            const names = cc.map(c => {
+              const nm = (c?.name && typeof c.name === "object") ? c.name.value : c?.name;
+              const ref = (c?.reference_number && typeof c.reference_number === "object") ? c.reference_number.value : c?.reference_number;
+              return [nm, ref].filter(Boolean).join(" ");
+            }).filter(Boolean).join(", ");
+            const first = cc[0]?.name;
+            const src = (first && typeof first === "object" && first.source) ? (first.source.document_name || null) : null;
+            return names ? <EF id="certaz" l={_("fCompCerts")} v={names} c="high" s={src} /> : null;
+          })() : (
+            <EF id="certaz" l={_("fCompCerts")} v="ISO 9001:2015, ISO 14001:2015" c="high" s="Profile" />
+          )}
         </ColSec>
       </div>
-      <ColSec title={_("optionalInfo")} iconD={ic.file} defaultOpen={false} badge={<Badge color={T.textSec} bg={T.bgSoft}>{_("optional")}</Badge>}>
-        <EF id="gtin" l="GTIN" {...(hasAI ? d("overview.product_info.gtin") : {v:"",c:"low",n:"Not found in documents. Optional."})} />
-        <EF id="bn" l={_("fBatchSerial")} {...(hasAI ? d("overview.product_info.batch_number") : {v:"",c:"low",n:"Optional. Enter if applicable."})} />
-        <EF id="img" l={_("fProdImage")} {...(hasAI ? d("overview.product_info.product_image") : {v:L?.lang==="it"?"📷 Caricata (XPS-100mm.jpg)":"📷 Uploaded (XPS-100mm.jpg)",c:"high",s:"Upload"})} />
-        <EF id="vendita" l={_("fSaleType")} {...(hasAI ? d("overview.manufacturer.sale_type") : {v:"Direct sales, Retailers",c:"high",s:"Profile"})} />
-        <EF id="dataprod" l={_("fMfgDate")} {...(hasAI ? d("overview.product_info.production_period") : {v:"",c:"low",n:"Optional. Applicable to specific batch."})} />
-      </ColSec>
+      {/* Item 11 (client feedback): Optional info section removed from the DPP
+          Model editor. Fields like GTIN, batch/serial number, production date
+          belong to the Batch or Item level, not the general product Model.
+          Product image + sale type will get their own dedicated homes in a
+          later polish pass; for now they're accessible via the raw passport. */}
       <ColSec title={_("versionHistory")} iconD={ic.clock} defaultOpen={false}>
         <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
           {[
