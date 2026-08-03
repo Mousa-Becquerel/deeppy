@@ -1304,8 +1304,12 @@ function LifecycleTab({ L, dppData }) {
       ["ADP minerals", "adp_minerals", "kg Sbeq"], ["ADP fossil", "adp_fossil", "MJ"],
       ["WDP", "wdp", "m³"],
     ];
+    // Item 7 (client feedback, bucket 5): keep value and unit visually
+    // separate so users see numbers are computable, not opaque strings.
+    // Storage in the passport already stores these as ExtractedField[float];
+    // this just stops the UI from concatenating them into one blob.
     const indicators = (s) => !s ? [] : indicatorRows
-      .map(([l, key, unit]) => { const v = val(s, key); return (v == null || v === "") ? null : { l, v: `${v} ${unit}`, c: "high" }; })
+      .map(([l, key, unit]) => { const v = val(s, key); return (v == null || v === "") ? null : { l, v: String(v), unit, c: "high" }; })
       .filter(Boolean);
     const map = { a1:"A1", a2:"A2", a3:"A3", a4:"A4", a5:"A5", b1:"B1", b2:"B2", b4:"B4", b6:"B6", c1:"C1", c2:"C2", c3:"C3" };
     const content = {};
@@ -1319,9 +1323,9 @@ function LifecycleTab({ L, dppData }) {
     if (val(a3, "process_description")) extra.push({ l: it?"Processo produttivo":"Manufacturing process", v: val(a3, "process_description"), c: "high" });
     if (val(a3, "reference_year")) extra.push({ l: it?"Anno di riferimento":"Reference year", v: String(val(a3, "reference_year")), c: "medium" });
     const en = (typeof a3.energy === "object" && a3.energy) || {};
-    if (val(en, "energy_electrical")) extra.push({ l: it?"Energia elettrica":"Electrical energy", v: `${val(en, "energy_electrical")} kWh`, c: "high" });
-    if (val(en, "energy_thermal")) extra.push({ l: it?"Energia termica":"Thermal energy", v: `${val(en, "energy_thermal")} Sm³`, c: "high" });
-    if (val(a3, "water_use")) extra.push({ l: it?"Consumo acqua":"Water use", v: `${val(a3, "water_use")} m³`, c: "high" });
+    if (val(en, "energy_electrical")) extra.push({ l: it?"Energia elettrica":"Electrical energy", v: String(val(en, "energy_electrical")), unit: "kWh", c: "high" });
+    if (val(en, "energy_thermal")) extra.push({ l: it?"Energia termica":"Thermal energy", v: String(val(en, "energy_thermal")), unit: "Sm³", c: "high" });
+    if (val(a3, "water_use")) extra.push({ l: it?"Consumo acqua":"Water use", v: String(val(a3, "water_use")), unit: "m³", c: "high" });
     if (val(a3, "packaging")) extra.push({ l: it?"Imballaggio":"Packaging", v: val(a3, "packaging"), c: "medium" });
     const prevA3 = content.a3 || { title: "A3", source: "Not available", fields: [] };
     content.a3 = { title: "A3", source: prevA3.source, fields: [...extra, ...(prevA3.fields || [])] };
@@ -1409,7 +1413,14 @@ function LifecycleTab({ L, dppData }) {
           <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 0", borderBottom: i < active.fields.length - 1 ? `1px solid ${T.borderLight}` : "none" }}>
             <div style={{ flex: 1 }}>
               <div style={{ fontSize: 11, color: T.textSec, marginBottom: 1 }}>{f.l}</div>
-              <div style={{ fontSize: 13, fontWeight: 600, color: f.v ? T.textDark : T.textSec, fontStyle: f.v ? "normal" : "italic" }}>{f.v || "Not filled in"}</div>
+              <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: f.v ? T.textDark : T.textSec, fontStyle: f.v ? "normal" : "italic", fontFamily: f.unit ? "'JetBrains Mono',monospace" : font }}>{f.v || "Not filled in"}</div>
+                {/* Item 7 (bucket 5): unit rendered as a separate pill so
+                    users see the numeric value is not welded to its unit —
+                    passport JSON stores them as a float and a string
+                    respectively. */}
+                {f.unit && f.v && <span style={{ fontSize: 10, fontWeight: 600, color: T.textSec, padding: "1px 6px", borderRadius: 4, background: T.bgSoft, border: `1px solid ${T.borderLight}` }}>{f.unit}</span>}
+              </div>
             </div>
             <Conf c={f.c} onClick={f.c === "medium" ? () => {} : undefined} />
           </div>
@@ -1625,7 +1636,7 @@ function AppEditView({ onNavigate, L, dppData, product, onAddProjectDPP, onSave 
     ? (overallPct != null ? Math.round(overallPct) : liveCompleteness)
     : liveCompleteness;
 
-  const EF = ({ id, l, v, c, n, s, srcRef, path }) => {
+  const EF = ({ id, l, v, c, n, s, srcRef, path, right }) => {
     const confState = confirmed[id]; // "auto" | "manual" | undefined
     // Show the edited value if the user changed this field (tracked by path).
     const edited = path && (path in edits) ? edits[path] : undefined;
@@ -1646,8 +1657,8 @@ function AppEditView({ onNavigate, L, dppData, product, onAddProjectDPP, onSave 
             <Conf c={confState === "manual" ? "manual" : confState === "auto" ? "high" : (c === "high" ? "high" : realC)} onClick={realC==="medium" ? () => doConfirm(id) : undefined} />
           </div>
         </div>
-        <div onClick={() => setEditingField(isEd?null:id)} onBlur={() => { if (isEd && c === "medium") setConfirmed(p => ({...p, [id]: "manual"})); }} style={{ padding: "9px 12px", borderRadius: 6, border: isEd?`2px solid ${T.accent}`:`1px solid ${bc}30`, borderLeft: `3px solid ${bc}`, background: isEd?T.accentSoft+"30":T.bg, fontSize: 13, color: shownV?T.textDark:T.textSec, fontStyle: shownV?"normal":"italic", cursor: "text", lineHeight: 1.5 }}>
-          {isEd?<input autoFocus defaultValue={shownV ?? ""} onChange={e => path && setEdits(p => ({ ...p, [path]: e.target.value }))} style={{ width: "100%", border: "none", outline: "none", fontSize: 13, fontWeight: 600, color: T.textDark, background: "transparent", fontFamily: font }} />:(shownV||"Missing data — click to enter")}
+        <div onClick={() => setEditingField(isEd?null:id)} onBlur={() => { if (isEd && c === "medium") setConfirmed(p => ({...p, [id]: "manual"})); }} style={{ padding: "9px 12px", borderRadius: 6, border: isEd?`2px solid ${T.accent}`:`1px solid ${bc}30`, borderLeft: `3px solid ${bc}`, background: isEd?T.accentSoft+"30":T.bg, fontSize: 13, color: shownV?T.textDark:T.textSec, fontStyle: shownV?"normal":"italic", cursor: "text", lineHeight: 1.5, textAlign: right ? "right" : "left" }}>
+          {isEd?<input autoFocus defaultValue={shownV ?? ""} onChange={e => path && setEdits(p => ({ ...p, [path]: e.target.value }))} style={{ width: "100%", border: "none", outline: "none", fontSize: 13, fontWeight: 600, color: T.textDark, background: "transparent", fontFamily: font, textAlign: right ? "right" : "left" }} />:(shownV||"Missing data — click to enter")}
         </div>
         {s&&!n&&<div style={{ fontSize: 10, color: T.textSec, marginTop: 2, paddingLeft: 14, display: "flex", alignItems: "center", gap: 3 }} title={href ? (L?.lang==="it"?"Apri il documento sorgente":"Open source document") : s}><I d={ic.file} size={10} color={T.textSec} /> {_("source")}: {href
           ? <a href={href} target="_blank" rel="noopener noreferrer" style={{ textDecoration: "underline", color: T.accentDark, cursor: "pointer" }}>{s}</a>
@@ -1680,15 +1691,17 @@ function AppEditView({ onNavigate, L, dppData, product, onAddProjectDPP, onSave 
     switch(tab){
     case "panoramica": return (<>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+        {/* Bucket 5 item 6: Product Information values are right-aligned per
+            client feedback. */}
         <ColSec title={_("productInfo")} iconD={ic.box} badge={<Badge color={T.textSec} bg={T.bgSoft}>{_("required")}</Badge>}>
-          <EF id="nome" l={_("fProductName")} {...(hasAI ? d("overview.product_info.product_name") : {v:"XPS Insulation Panel 100mm",c:"high",s:"Technical Sheet, p. 1"})} />
-          <EF id="uid" l="UID" {...(hasAI ? d("overview.product_info.uid") : {v:"DPP-20260115-a3f8c2d1",c:"high",s:"Generated"})} />
-          <EF id="tipo" l={_("fItemType")} {...(hasAI ? d("overview.product_info.item_type") : {v:"Product",c:"high",s:"Automatic"})} />
-          <EF id="cat" l={_("fCprCategory")} {...(hasAI ? d("overview.product_info.product_family") : {v:"Thermal insulation products",c:confFor("cat","medium"),s:"DoP",n:"Classified as CPR Annex VII — Thermal insulation. Please confirm."})} />
-          <EF id="uf" l={_("fFuncUnit")} {...(hasAI ? d("overview.product_info.functional_unit") : {v:"1 m² thickness 100mm",c:confFor("uf","medium"),s:"EPD, pag. 2",n:"EPD declares 1m² thickness 100mm. Please verify with DoP."})} />
-          <EF id="desc" l={_("fDescription")} {...(hasAI ? d("overview.product_info.product_description") : {v:"High-density extruded polystyrene insulation panel for thermal insulation.",c:"high",s:"Technical Data Sheet"})} />
-          <EF id="dim" l={_("fDimensions")} {...(hasAI ? d("overview.product_info.standard_dimension") : {v:"1250 × 600 × 100 mm",c:"high",s:"Technical Data Sheet"})} />
-          <EF id="peso" l={_("fWeight")} {...(hasAI ? d("overview.product_info.weight") : {v:"3.5 kg/m²",c:"high",s:"Technical Data Sheet"})} />
+          <EF right id="nome" l={_("fProductName")} {...(hasAI ? d("overview.product_info.product_name") : {v:"XPS Insulation Panel 100mm",c:"high",s:"Technical Sheet, p. 1"})} />
+          <EF right id="uid" l="UID" {...(hasAI ? d("overview.product_info.uid") : {v:"DPP-20260115-a3f8c2d1",c:"high",s:"Generated"})} />
+          <EF right id="tipo" l={_("fItemType")} {...(hasAI ? d("overview.product_info.item_type") : {v:"Product",c:"high",s:"Automatic"})} />
+          <EF right id="cat" l={_("fCprCategory")} {...(hasAI ? d("overview.product_info.product_family") : {v:"Thermal insulation products",c:confFor("cat","medium"),s:"DoP",n:"Classified as CPR Annex VII — Thermal insulation. Please confirm."})} />
+          <EF right id="uf" l={_("fFuncUnit")} {...(hasAI ? d("overview.product_info.functional_unit") : {v:"1 m² thickness 100mm",c:confFor("uf","medium"),s:"EPD, pag. 2",n:"EPD declares 1m² thickness 100mm. Please verify with DoP."})} />
+          <EF right id="desc" l={_("fDescription")} {...(hasAI ? d("overview.product_info.product_description") : {v:"High-density extruded polystyrene insulation panel for thermal insulation.",c:"high",s:"Technical Data Sheet"})} />
+          <EF right id="dim" l={_("fDimensions")} {...(hasAI ? d("overview.product_info.standard_dimension") : {v:"1250 × 600 × 100 mm",c:"high",s:"Technical Data Sheet"})} />
+          <EF right id="peso" l={_("fWeight")} {...(hasAI ? d("overview.product_info.weight") : {v:"3.5 kg/m²",c:"high",s:"Technical Data Sheet"})} />
         </ColSec>
         <ColSec title={_("manufacturer")} iconD={ic.factory} badge={<Badge color={T.textSec} bg={T.bgSoft}>{_("required")}</Badge>}>
           <EF id="prod" l={_("fCompany")} {...(hasAI ? d("overview.manufacturer.company_name") : {v:"Deeppy Construction Materials srl",c:"high",s:"DoP"})} />
@@ -2305,7 +2318,7 @@ function CatalogView({ onNavigate, L }) {
               const k = p.kpis || {};
               const gwp = k.gwp_total != null ? `${k.gwp_total} kgCO\u2082e/m\u00b2` : "\u2014";
               const recycled = k.recycled || "\u2014";
-              const energy = k.energy_class || "\u2014";
+              // Bucket 5 item 1: energy KPI dropped \u2014 no reliable source in EPDs.
               const mfr = p.manufacturer || p.company_name || "\u2014";
               return (
                 <button key={p.id} onClick={() => openCard(p)} style={{ borderRadius: 12, border: `1px solid ${T.border}`, background: T.bg, overflow: "hidden", cursor: "pointer", fontFamily: font, textAlign: "left", padding: 0, display: "block", width: "100%", transition: "border-color 0.15s, box-shadow 0.15s" }} onMouseEnter={e=>{e.currentTarget.style.borderColor=T.accent;e.currentTarget.style.boxShadow=`0 0 0 1px ${T.accent}30`}} onMouseLeave={e=>{e.currentTarget.style.borderColor=T.border;e.currentTarget.style.boxShadow="none"}}>
@@ -2323,8 +2336,8 @@ function CatalogView({ onNavigate, L }) {
                     </div>
                   </div>
                   <div style={{ padding: "0 18px 14px" }}>
-                    {[["GWP Total", gwp], [_("recycled"), recycled], [_("energy"), energy]].map(([l, v], j) => (
-                      <div key={j} style={{ display: "flex", justifyContent: "space-between", padding: "4px 0", borderBottom: j < 2 ? `1px solid ${T.borderLight}` : "none" }}>
+                    {[["GWP Total", gwp], [_("recycled"), recycled]].map(([l, v], j) => (
+                      <div key={j} style={{ display: "flex", justifyContent: "space-between", padding: "4px 0", borderBottom: j < 1 ? `1px solid ${T.borderLight}` : "none" }}>
                         <span style={{ fontSize: 12, color: T.textSec }}>{l}</span>
                         <span style={{ fontSize: 12, fontWeight: 700, color: T.textDark }}>{v}</span>
                       </div>
@@ -2924,10 +2937,13 @@ body{font-family:'Inter',sans-serif;color:#1E293B;font-size:12px;line-height:1.5
     const a = document.createElement("a"); a.href = URL.createObjectURL(b); a.download = "DPP-XPS100.csv"; document.body.appendChild(a); a.click(); document.body.removeChild(a);
   };
 
-  const Row = ({ l, v, tags }) => (
+  // Bucket 5 item 6: `right` prop right-aligns the value text (for
+  // Product Information card per client feedback). Default keeps existing
+  // left-aligned behavior everywhere else.
+  const Row = ({ l, v, tags, right }) => (
     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 16px", borderBottom: `1px solid ${T.borderLight}` }}>
       <span style={{ fontSize: 13, color: T.textSec }}>{l}</span>
-      {tags ? <div style={{ display: "flex", gap: 4 }}>{tags.map((t,i)=><Badge key={i} color={T.textSec} bg={T.bgSoft}>{t}</Badge>)}</div> : <span style={{ fontSize: 14, fontWeight: 600, color: T.textDark }}>{v}</span>}
+      {tags ? <div style={{ display: "flex", gap: 4 }}>{tags.map((t,i)=><Badge key={i} color={T.textSec} bg={T.bgSoft}>{t}</Badge>)}</div> : <span style={{ fontSize: 14, fontWeight: 600, color: T.textDark, textAlign: right ? "right" : "left" }}>{v}</span>}
     </div>
   );
   const Card = ({ title, iconD, children }) => (
@@ -3001,6 +3017,9 @@ body{font-family:'Inter',sans-serif;color:#1E293B;font-size:12px;line-height:1.5
     dims: p.dims || "",
     weight: p.weight || "",
     date: p.createdAt ? new Date(p.createdAt).toLocaleDateString(L?.lang === "it" ? "it-IT" : "en-US", { day: "numeric", month: "short", year: "numeric" }) : "",
+    // Bucket 5 item 4: extra fields for the trimmed Batch card.
+    productionDate: p.productionDate || "",
+    overrides: p.overrides || {},
     pct: 100,
   }));
   const filteredSpecs = specDPPs.filter(s => !specFilter || s.batch.toLowerCase().includes(specFilter.toLowerCase()) || (s.ref && s.ref.toLowerCase().includes(specFilter.toLowerCase())));
@@ -3014,7 +3033,11 @@ body{font-family:'Inter',sans-serif;color:#1E293B;font-size:12px;line-height:1.5
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 16 }}>
         <Card title={_("manufacturer")} iconD={ic.factory}><Row l={_("fCompany")} v={pmfr} /><Row l={_("fLegalHQ")} v={rv("overview.manufacturer.address", "Via Emilia 42, 47921 Rimini (RN)")} /><Row l={_("fProdSite")} v={rv("overview.manufacturer.manufacturing_site", "Novara Plant, Via Industria 8")} /><Row l={it?"Sito web":"Website"} v={rv("overview.manufacturer.website", na)} /><Row l="Email" v={rv("overview.manufacturer.email", na)} /><Row l={it?"Telefono":"Phone"} v={rv("overview.manufacturer.phone", na)} /></Card>
-        <Card title={_("product")} iconD={ic.box}><Row l={_("fProductName")} v={pname} /><Row l="UID" v={puid} /><Row l={_("fCprCategory")} v={rv("overview.product_info.product_family", it?"Prodotti per isolamento termico":"Thermal insulation products")} /><Row l={_("fFuncUnit")} v={rv("overview.product_info.functional_unit", it?"1 m² spessore 100mm":"1 m² thickness 100mm")} /><Row l={it?"Descrizione":"Description"} v={rv("overview.product_info.product_description", it?"Pannello isolante XPS ad alta densità":"High-density XPS insulation panel")} /><Row l={_("fDimensions")} v={rv("overview.product_info.standard_dimension", "1250 × 600 × 100 mm")} /><Row l={_("fWeight")} v={rv("overview.product_info.weight", "3.5 kg/m²")} /><Row l={_("fIntendedUse")||(it?"Uso previsto":"Intended use")} v={rv("overview.product_info.intended_use", na)} /><Row l="GTIN/EAN" v={rv("overview.product_info.gtin", na)} /><Row l={it?"Lotto di produzione":"Production batch"} v={rv("overview.product_info.batch_number", na)} /></Card>
+        {/* Bucket 5 items 5+6: GTIN/EAN and Production batch rows removed
+            from Model → Product Information (they belong on the Batch/Item
+            level, not the reusable product Model). All remaining rows are
+            right-aligned per client feedback. */}
+        <Card title={_("product")} iconD={ic.box}><Row right l={_("fProductName")} v={pname} /><Row right l="UID" v={puid} /><Row right l={_("fCprCategory")} v={rv("overview.product_info.product_family", it?"Prodotti per isolamento termico":"Thermal insulation products")} /><Row right l={_("fFuncUnit")} v={rv("overview.product_info.functional_unit", it?"1 m² spessore 100mm":"1 m² thickness 100mm")} /><Row right l={it?"Descrizione":"Description"} v={rv("overview.product_info.product_description", it?"Pannello isolante XPS ad alta densità":"High-density XPS insulation panel")} /><Row right l={_("fDimensions")} v={rv("overview.product_info.standard_dimension", "1250 × 600 × 100 mm")} /><Row right l={_("fWeight")} v={rv("overview.product_info.weight", "3.5 kg/m²")} /><Row right l={_("fIntendedUse")||(it?"Uso previsto":"Intended use")} v={rv("overview.product_info.intended_use", na)} /></Card>
       </div>
       <SupplyMap dppData={product?.dppData} />
     </>);
@@ -3078,7 +3101,7 @@ body{font-family:'Inter',sans-serif;color:#1E293B;font-size:12px;line-height:1.5
     case "batch": {
       const hasSpecs = specDPPs.length > 0 || projCreated;
       const currentSpec = selectedSpec === "new"
-        ? { batch: projBatch, site: projSite, ref: projRef, dims: projDims, weight: projWeight, date: it?"Oggi":"Today" }
+        ? { batch: projBatch, site: projSite, ref: projRef, dims: projDims, weight: projWeight, date: it?"Oggi":"Today", productionDate: "", overrides: {} }
         : specDPPs.find(x => x.id === selectedSpec);
 
       return (<div>
@@ -3090,25 +3113,55 @@ body{font-family:'Inter',sans-serif;color:#1E293B;font-size:12px;line-height:1.5
           </div>
           <Btn primary small onClick={()=>onNavigate("onboard-batch")} style={{ fontSize: 11, padding: "6px 14px" }}><I d={ic.plus} size={12} color={T.navy} /> {it?"Nuovo Batch":"New Batch"}</Btn>
         </div>
-        {/* ─── SECTION 1: Current DPP Batch detail (top) ─── */}
-        {hasSpecs && currentSpec && (<div style={{ marginBottom: 20 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-            <div style={{ fontSize: 13, fontWeight: 700, color: T.textSec, textTransform: "uppercase", letterSpacing: "0.05em" }}>
-              {it?"Informazioni DPP Batch":"Batch DPP Information"}
+        {/* ─── SECTION 1: Current DPP Batch detail (top) ───
+            Bucket 5 item 4: trimmed to exactly the 8 fields the client asked
+            for. Order preserved verbatim. Fields with no source data render as
+            "—" so the shape stays constant across batches. */}
+        {hasSpecs && currentSpec && (() => {
+          const ov = currentSpec.overrides || {};
+          const dash = "—";
+          const fmtDate = (d) => {
+            if (!d) return dash;
+            try { const dt = new Date(d); return isNaN(dt) ? String(d) : dt.toLocaleDateString(L?.lang==="it"?"it-IT":"en-US", { day:"numeric", month:"short", year:"numeric" }); }
+            catch { return dash; }
+          };
+          const rows = [
+            { l: it?"Nome DPP Model":"DPP model name", v: product?.name || pname || dash },
+            { l: "UID", v: puid || dash },
+            { l: "GTIN/EAN", v: ov.gtin || rv("overview.product_info.gtin", dash) },
+            { l: it?"Lotto produttivo":"Production batch", v: currentSpec.batch || dash },
+            { l: it?"Data di produzione":"Date of manufacturing", v: fmtDate(currentSpec.productionDate) },
+            { l: it?"Data di consegna":"Date of delivery", v: fmtDate(ov.delivery_date) },
+            { l: it?"Stabilimento":"Production site", v: currentSpec.site || dash },
+            { l: it?"Quantità":"Quantity", v: ov.quantity || dash },
+          ];
+          return (<div style={{ marginBottom: 20 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: T.textSec, textTransform: "uppercase", letterSpacing: "0.05em" }}>
+                {it?"Informazioni DPP Batch":"Batch DPP Information"}
+              </div>
+              {selectedSpec === "new" && <Badge color={T.accent} bg={T.accentSoft}>{it?"Appena creato":"Just created"}</Badge>}
             </div>
-            {selectedSpec === "new" && <Badge color={T.accent} bg={T.accentSoft}>{it?"Appena creato":"Just created"}</Badge>}
-          </div>
-          <div style={{ borderRadius: 10, border: `1px solid ${T.border}`, background: T.bg, overflow: "hidden" }}>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 0 }}>
-              <div style={{ padding: "14px 18px", borderBottom: `1px solid ${T.borderLight}`, borderRight: `1px solid ${T.borderLight}` }}><div style={{ fontSize: 10, fontWeight: 600, color: T.textSec, textTransform: "uppercase", marginBottom: 3 }}>{it?"Lotto":"Batch"}</div><div style={{ fontSize: 14, fontWeight: 700, color: T.navy }}>{currentSpec.batch}</div></div>
-              <div style={{ padding: "14px 18px", borderBottom: `1px solid ${T.borderLight}` }}><div style={{ fontSize: 10, fontWeight: 600, color: T.textSec, textTransform: "uppercase", marginBottom: 3 }}>{it?"Stabilimento":"Site"}</div><div style={{ fontSize: 14, fontWeight: 700, color: T.navy }}>{currentSpec.site}</div></div>
-              {currentSpec.ref && <div style={{ padding: "14px 18px", borderBottom: `1px solid ${T.borderLight}`, borderRight: `1px solid ${T.borderLight}` }}><div style={{ fontSize: 10, fontWeight: 600, color: T.textSec, textTransform: "uppercase", marginBottom: 3 }}>{it?"Commessa":"Order"}</div><div style={{ fontSize: 13, fontWeight: 600, color: T.textDark }}>{currentSpec.ref}</div></div>}
-              <div style={{ padding: "14px 18px", borderBottom: currentSpec.dims ? `1px solid ${T.borderLight}` : "none" }}><div style={{ fontSize: 10, fontWeight: 600, color: T.textSec, textTransform: "uppercase", marginBottom: 3 }}>{it?"Data":"Date"}</div><div style={{ fontSize: 13, fontWeight: 600, color: T.textDark }}>{currentSpec.date}</div></div>
-              {currentSpec.dims && <div style={{ padding: "14px 18px", borderRight: `1px solid ${T.borderLight}` }}><div style={{ fontSize: 10, fontWeight: 600, color: T.textSec, textTransform: "uppercase", marginBottom: 3 }}>{it?"Dimensioni":"Dimensions"}</div><div style={{ fontSize: 13, fontWeight: 600, color: T.textDark }}>{currentSpec.dims}</div></div>}
-              {currentSpec.weight && <div style={{ padding: "14px 18px" }}><div style={{ fontSize: 10, fontWeight: 600, color: T.textSec, textTransform: "uppercase", marginBottom: 3 }}>{it?"Peso":"Weight"}</div><div style={{ fontSize: 13, fontWeight: 600, color: T.textDark }}>{currentSpec.weight}</div></div>}
+            <div style={{ borderRadius: 10, border: `1px solid ${T.border}`, background: T.bg, overflow: "hidden" }}>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 0 }}>
+                {rows.map((r, i) => {
+                  const inLastRow = i >= rows.length - 2;
+                  const isLeft = i % 2 === 0;
+                  return (
+                    <div key={i} style={{
+                      padding: "14px 18px",
+                      borderBottom: inLastRow ? "none" : `1px solid ${T.borderLight}`,
+                      borderRight: isLeft ? `1px solid ${T.borderLight}` : "none",
+                    }}>
+                      <div style={{ fontSize: 10, fontWeight: 600, color: T.textSec, textTransform: "uppercase", marginBottom: 3 }}>{r.l}</div>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: r.v === dash ? T.textSec : T.navy, fontStyle: r.v === dash ? "italic" : "normal" }}>{r.v}</div>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
-          </div>
-        </div>)}
+          </div>);
+        })()}
 
         {/* Empty state - no DPP Batch and none selected */}
         {!hasSpecs && (<div style={{ textAlign: "center", padding: "32px 20px", borderRadius: 10, border: `1px solid ${T.border}`, background: T.bg, marginBottom: 20 }}>
@@ -3243,11 +3296,12 @@ body{font-family:'Inter',sans-serif;color:#1E293B;font-size:12px;line-height:1.5
                 <div style={{ marginBottom: 8 }}><Badge color={T.textSec} bg={T.bgSoft}><I d={ic.clip} size={9} color={T.textSec} /> {puid}</Badge></div>
                 <p style={{ fontSize: 13, color: T.textSec, margin: "0 0 12px", lineHeight: 1.5 }}>{rv("overview.product_info.product_description", "Pannello isolante in polistirene estruso ad alta densità per isolamento termico di pareti, pavimenti e coperture.")}</p>
                 <div style={{ display: "flex", gap: 10 }}>
+                  {/* Bucket 5 item 1: ENERGY KPI removed per client — energy class
+                      isn't extracted from EPDs, and the placeholder was misleading. */}
                   {[
                     {ic: ic.leaf, l:"CARBON", v: hasAI ? (gwpStages.length ? `${gwpTotal.toFixed(1)} kg` : (it?"n.d.":"n/a")) : "5.5 kg", s:"CO₂eq"},
                     {ic: ic.recycle, l: it?"RICICLATO":"RECYCLED", v: hasAI ? (recycledVal || (it?"n.d.":"n/a")) : "15%", s:"content"},
                     {ic: ic.recycle, l: it?"RICICLABILE":"RECYCLABLE", v: hasAI ? (it?"n.d.":"n/a") : "85%", s:"end of life"},
-                    {ic: ic.energy, l: it?"ENERGIA":"ENERGY", v: hasAI ? (it?"n.d.":"n/a") : "A+", s:"class", dk:true},
                   ].map((k,i)=>(
                     <div key={i} style={{ flex: 1, padding: "10px 14px", borderRadius: 8, background: k.dk?T.navyLight:T.bgSoft, border: `1px solid ${k.dk?T.navyMid:T.border}` }}>
                       <div style={{ fontSize: 10, fontWeight: 700, color: k.dk?T.textMuted:T.textSec, textTransform: "uppercase", display: "flex", alignItems: "center", gap: 3 }}><I d={k.ic} size={10} color={k.dk?T.textMuted:T.textSec} />{k.l}</div>
@@ -3379,7 +3433,7 @@ body{font-family:'Inter',sans-serif;color:#1E293B;font-size:12px;line-height:1.5
                 </div>
               </div>
               <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", borderBottom: `1px solid ${T.borderLight}` }}>
-                {[["GWP","5.5","kgCO₂eq/m²"],[it?"Riciclato":"Recycled","15%",it?"contenuto":"content"],[it?"Riciclabile":"Recyclable","85%",it?"fine vita":"end of life"],[it?"Energia":"Energy","A+",it?"classe":"class"]].map(([l,v,u],i)=>(
+                {[["GWP","5.5","kgCO₂eq/m²"],[it?"Riciclato":"Recycled","15%",it?"contenuto":"content"],[it?"Riciclabile":"Recyclable","85%",it?"fine vita":"end of life"]].map(([l,v,u],i)=>(
                   <div key={i} style={{ padding: "12px 14px", textAlign: "center", borderRight: i<3?`1px solid ${T.borderLight}`:"none" }}>
                     <div style={{ fontSize: 9, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em", color: T.textSec }}>{l}</div>
                     <div style={{ fontSize: 20, fontWeight: 800, color: T.accentDark, marginTop: 2 }}>{v}</div>
@@ -4821,7 +4875,15 @@ export default function DeePPy() {
     })(),
     projectDPPs: (api.batches || []).map(b => ({
       id: b.id, batch: b.lot || "", site: b.site || "", ref: b.ref || "",
-      dims: "", weight: "", createdAt: b.created_at, items: b.items || [],
+      dims: "", weight: "",
+      createdAt: b.created_at,
+      // Bucket 5 item 4: fields required in the trimmed Batch tab.
+      // production_date is the schema-native manufacturing date.
+      // delivery_date + quantity + gtin live in `overrides` until a real
+      // schema column exists.
+      productionDate: b.production_date || "",
+      overrides: b.overrides || {},
+      items: b.items || [],
     })),
   });
 
