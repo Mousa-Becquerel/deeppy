@@ -390,6 +390,26 @@ def add_document(
     return doc
 
 
+def get_product_image_documents(db: Session, product_id: str) -> list[models.Document]:
+    """Return existing docs flagged as the product's display image.
+    Used by the image-upload flow so we can remove prior uploads and keep
+    exactly one product_image per product."""
+    stmt = select(models.Document).where(
+        models.Document.product_id == product_id,
+        models.Document.doc_type == "product_image",
+    )
+    return list(db.scalars(stmt))
+
+
+def delete_document(db: Session, doc_id: str) -> None:
+    """Remove a Document row by id. Caller is responsible for deleting the
+    file on disk — this is DB-only."""
+    doc = db.get(models.Document, doc_id)
+    if doc is not None:
+        db.delete(doc)
+        db.flush()
+
+
 # ── Extraction jobs ───────────────────────────────────────────────────────
 
 def create_job(db: Session, job_id: str) -> models.ExtractionJob:

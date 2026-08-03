@@ -1455,8 +1455,94 @@ function _ef(passport, path) {
   };
 }
 
+// Bucket 5 item 2 (client feedback): shared image-slot component used by
+// AppEditView (small, always uploadable) and AppView (large, uploadable when
+// canEdit). Renders the product image if present; otherwise a placeholder
+// icon with the family short-code. Click → file picker → POST to
+// /api/products/{id}/image → parent reloads product to refresh imageUrl.
+function ProductImageSlot({ product, size = 120, editable = true, familyShort = "", onReload, L }) {
+  const fileRef = useRef(null);
+  const [uploading, setUploading] = useState(false);
+  const [error, setError] = useState(null);
+  const it = L?.lang === "it";
+  const src = product?.imageUrl;
+  const upload = async (file) => {
+    if (!file || !product?.id) return;
+    setError(null);
+    setUploading(true);
+    try {
+      const fd = new FormData(); fd.append("file", file);
+      const res = await fetch(`/api/products/${product.id}/image`, { method: "POST", credentials: "include", body: fd });
+      if (!res.ok) {
+        let msg = `HTTP ${res.status}`;
+        try { const j = await res.json(); if (j?.detail) msg = j.detail; } catch {}
+        throw new Error(msg);
+      }
+      if (typeof onReload === "function") onReload(product.id);
+    } catch (e) {
+      setError(e?.message || "Upload failed");
+    } finally {
+      setUploading(false);
+    }
+  };
+  const bg = `linear-gradient(135deg, ${T.bgSoft}, ${T.accentSoft}50)`;
+  const wrapStyle = {
+    width: size, height: size, borderRadius: 10, border: `1px solid ${T.border}`,
+    background: src ? T.bgSoft : bg,
+    display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+    flexShrink: 0, position: "relative", overflow: "hidden",
+    cursor: editable ? "pointer" : "default",
+  };
+  return (
+    <div>
+      <div
+        style={wrapStyle}
+        onClick={() => { if (editable && !uploading) fileRef.current?.click(); }}
+        title={editable ? (it ? "Clicca per caricare/cambiare l'immagine" : "Click to upload / change image") : ""}
+      >
+        {src
+          ? <img src={src} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+          : (<>
+              <I d={ic.box} size={Math.round(size * 0.35)} color={T.accent} style={{ opacity: 0.5 }} />
+              {familyShort && <div style={{ fontSize: Math.max(9, Math.round(size * 0.08)), fontWeight: 600, color: T.accentDark, marginTop: 4, textAlign: "center", padding: "0 6px" }}>{familyShort}</div>}
+            </>)
+        }
+        {editable && !uploading && (
+          <div style={{
+            position: "absolute", inset: 0,
+            background: "rgba(15, 23, 42, 0.55)", color: "#fff",
+            display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+            gap: 4, opacity: 0, transition: "opacity 0.15s",
+          }}
+          onMouseEnter={e => e.currentTarget.style.opacity = "1"}
+          onMouseLeave={e => e.currentTarget.style.opacity = "0"}
+          >
+            <I d={ic.upload} size={Math.round(size * 0.18)} color="#fff" />
+            <div style={{ fontSize: 11, fontWeight: 700 }}>
+              {src ? (it ? "Cambia" : "Change") : (it ? "Carica" : "Upload")}
+            </div>
+          </div>
+        )}
+        {uploading && (
+          <div style={{ position: "absolute", inset: 0, background: "rgba(255,255,255,0.85)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, color: T.accentDark }}>
+            {it ? "Caricamento…" : "Uploading…"}
+          </div>
+        )}
+        <input
+          ref={fileRef}
+          type="file"
+          accept="image/*"
+          style={{ display: "none" }}
+          onChange={e => { const f = e.target.files?.[0]; if (f) upload(f); e.target.value = ""; }}
+        />
+      </div>
+      {error && <div style={{ fontSize: 10, color: T.red, marginTop: 4, maxWidth: size, lineHeight: 1.4 }}>{error}</div>}
+    </div>
+  );
+}
+
 // ─── APP EDIT VIEW (DRAFT) ───────────────────────────────
-function AppEditView({ onNavigate, L, dppData, product, onAddProjectDPP, onSave }) {
+function AppEditView({ onNavigate, L, dppData, product, onAddProjectDPP, onSave, onReloadProduct }) {
   const _ = k => t(k, L?.lang);
   const [tab, setTab] = useState("panoramica");
   const [chatOpen, setChatOpen] = useState(false);
@@ -2022,16 +2108,27 @@ function AppEditView({ onNavigate, L, dppData, product, onAddProjectDPP, onSave 
         <div style={{ flex: 1, overflowY: "auto", padding: "20px 28px 40px" }}>
           <button onClick={()=>onNavigate("catalog")} style={{ background: "none", border: "none", color: T.textSec, fontSize: 12, cursor: "pointer", padding: 0, marginBottom: 12, fontFamily: font, display: "flex", alignItems: "center", gap: 4 }}><I d={ic.arrow} size={12} color={T.textSec} style={{ transform: "rotate(180deg)" }} /> {_("backTo")}</button>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 16 }}>
-            <div>
-              <div style={{ display: "flex", gap: 6, marginBottom: 6 }}>
-                {product?.status === "published"
-                  ? <Badge color={T.accentDark} bg={T.accentSoft}><I d={ic.check} size={9} color={T.accentDark} /> {_("published")}</Badge>
-                  : <Badge color={T.amber} bg={T.amberSoft}><I d={ic.edit} size={9} color={T.amber} /> {_("draft")}</Badge>}
-                <Badge color={T.textSec} bg={T.bgSoft}>{hasAI ? ((pp?.overview?.product_info?.product_family?.value || "").split(" - ")[0] || pp?.overview?.product_info?.product_family_code?.value || _("insulation")) : _("insulation")}</Badge>
-                <Badge color={T.textSec} bg={T.bgSoft}><I d={ic.globe} size={9} color={T.textSec} /> EU 2024/1781</Badge>
+            {/* Bucket 5 item 2: uploadable product image beside the name. */}
+            <div style={{ display: "flex", gap: 16, alignItems: "flex-start", flex: 1 }}>
+              <ProductImageSlot
+                product={product}
+                size={96}
+                editable
+                familyShort={hasAI ? ((pp?.overview?.product_info?.product_family_code?.value || "").toString().slice(0, 6)) : ""}
+                onReload={onReloadProduct}
+                L={L}
+              />
+              <div>
+                <div style={{ display: "flex", gap: 6, marginBottom: 6 }}>
+                  {product?.status === "published"
+                    ? <Badge color={T.accentDark} bg={T.accentSoft}><I d={ic.check} size={9} color={T.accentDark} /> {_("published")}</Badge>
+                    : <Badge color={T.amber} bg={T.amberSoft}><I d={ic.edit} size={9} color={T.amber} /> {_("draft")}</Badge>}
+                  <Badge color={T.textSec} bg={T.bgSoft}>{hasAI ? ((pp?.overview?.product_info?.product_family?.value || "").split(" - ")[0] || pp?.overview?.product_info?.product_family_code?.value || _("insulation")) : _("insulation")}</Badge>
+                  <Badge color={T.textSec} bg={T.bgSoft}><I d={ic.globe} size={9} color={T.textSec} /> EU 2024/1781</Badge>
+                </div>
+                <h1 style={{ fontSize: 24, fontWeight: 800, color: T.navy, margin: "0 0 3px" }}>{hasAI ? (pp?.overview?.product_info?.product_name?.value || "Product") : "XPS Insulation Panel 100mm"}</h1>
+                <div style={{ fontSize: 12, color: T.textSec }}>{`${hasAI ? (pp?.overview?.product_info?.uid?.value || "—") : "DPP-20260115-a3f8c2d1"}${(() => { const ts = product?.updatedAt || product?.createdAt; if (!ts) return ""; const d = new Date(ts); return isNaN(d) ? "" : ` — ${L?.lang==="it"?"Aggiornato":"Updated"}: ${d.toLocaleDateString(L?.lang==="it"?"it-IT":"en-US",{day:"numeric",month:"short",year:"numeric"})}`; })()}`}</div>
               </div>
-              <h1 style={{ fontSize: 24, fontWeight: 800, color: T.navy, margin: "0 0 3px" }}>{hasAI ? (pp?.overview?.product_info?.product_name?.value || "Product") : "XPS Insulation Panel 100mm"}</h1>
-              <div style={{ fontSize: 12, color: T.textSec }}>{`${hasAI ? (pp?.overview?.product_info?.uid?.value || "—") : "DPP-20260115-a3f8c2d1"}${(() => { const ts = product?.updatedAt || product?.createdAt; if (!ts) return ""; const d = new Date(ts); return isNaN(d) ? "" : ` — ${L?.lang==="it"?"Aggiornato":"Updated"}: ${d.toLocaleDateString(L?.lang==="it"?"it-IT":"en-US",{day:"numeric",month:"short",year:"numeric"})}`; })()}`}</div>
             </div>
             <div style={{ display: "flex", gap: 6 }}>
               <Btn small onClick={()=>setChatOpen(!chatOpen)} style={{ border: `1px solid ${chatOpen?T.accent:T.border}`, background: chatOpen?T.accentSoft:T.bg, color: chatOpen?T.accentDark:T.textSec }}><I d={ic.msg} size={13} color={chatOpen?T.accentDark:T.textSec} /> {_("assistant")}</Btn>
@@ -2611,7 +2708,7 @@ function VersionsTab({ L, versions, productId, onChange }) {
 
 
 // ─── APP VIEW (PUBLISHED / PREVIEW) ─────────────────────
-function AppView({ onNavigate, L, product, onAddProjectDPP, onPublish }) {
+function AppView({ onNavigate, L, product, onAddProjectDPP, onPublish, onReloadProduct }) {
   const _ = k => t(k, L?.lang);
   const it = L?.lang === "it";
   const [tab, setTab] = useState("panoramica");
@@ -3278,14 +3375,16 @@ body{font-family:'Inter',sans-serif;color:#1E293B;font-size:12px;line-height:1.5
           <div style={{ padding: "12px 28px 0" }}><button onClick={()=>onNavigate("catalog")} style={{ background: "none", border: "none", color: T.textSec, fontSize: 12, cursor: "pointer", padding: 0, fontFamily: font, display: "flex", alignItems: "center", gap: 4 }}><I d={ic.arrow} size={12} color={T.textSec} style={{ transform: "rotate(180deg)" }} /> {_("backTo")}</button></div>
           <div style={{ padding: "16px 28px 20px", background: T.bg, borderBottom: `1px solid ${T.border}` }}>
             <div style={{ display: "flex", gap: 24 }}>
-              {product?.imageUrl ? (
-                <img src={product.imageUrl} alt={pname} style={{ width: 160, height: 160, borderRadius: 10, objectFit: "cover", border: `1px solid ${T.border}`, flexShrink: 0, background: T.bgSoft }} />
-              ) : (
-                <div style={{ width: 160, height: 160, borderRadius: 10, background: `linear-gradient(135deg, ${T.bgSoft}, ${T.accentSoft}50)`, border: `1px solid ${T.border}`, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                  <I d={ic.box} size={48} color={T.accent} style={{ opacity: 0.5 }} />
-                  <div style={{ fontSize: 11, fontWeight: 600, color: T.accentDark, marginTop: 4, textAlign: "center", padding: "0 6px" }}>{familyShort}</div>
-                </div>
-              )}
+              {/* Bucket 5 item 2: shared uploadable image slot. */}
+              <ProductImageSlot
+                product={product}
+                size={160}
+                editable
+                familyShort={familyShort}
+                onReload={onReloadProduct}
+                L={L}
+              />
+
               <div style={{ flex: 1 }}>
                 <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
                   <Badge color={published?T.bg:T.amber} bg={published?T.accent:T.amberSoft}><I d={published?ic.check:ic.edit} size={9} color={published?T.navy:T.amber} /> {published?_("published"):_("preview")}</Badge>
@@ -4867,11 +4966,17 @@ export default function DeePPy() {
     dppData: api.passport ? { passport: api.passport, stats: api.stats || null } : null,
     documents: api.documents || [],          // uploaded source files (filename, size_bytes)
     sourceDocuments: api.source_documents || [],
-    // If any uploaded file is an image, surface it as the product image URL.
+    // Bucket 5 item 2: prefer an explicit product_image upload; fall back to
+    // the first image file among source docs. Cache-busts with updated_at so a
+    // re-upload doesn't keep showing the stale image from the browser cache.
     imageUrl: (() => {
       const imgExt = /\.(jpe?g|png|webp|gif|bmp|tiff?)$/i;
-      const d = (api.documents || []).find(x => imgExt.test(x.filename || ""));
-      return d ? `/api/products/${api.id}/documents/${d.id}` : null;
+      const docs = api.documents || [];
+      const explicit = docs.find(x => x.doc_type === "product_image");
+      const d = explicit || docs.find(x => imgExt.test(x.filename || ""));
+      if (!d) return null;
+      const bust = api.updated_at ? `?v=${encodeURIComponent(api.updated_at)}` : "";
+      return `/api/products/${api.id}/documents/${d.id}${bust}`;
     })(),
     projectDPPs: (api.batches || []).map(b => ({
       id: b.id, batch: b.lot || "", site: b.site || "", ref: b.ref || "",
@@ -5088,8 +5193,8 @@ export default function DeePPy() {
       case "documents": return <DocumentsView onNavigate={setPage} L={L} onLogout={handleLogout} user={user} />;
       case "team": return <TeamView onNavigate={setPage} L={L} onLogout={handleLogout} user={user} />;
       case "settings": return <SettingsView onNavigate={setPage} L={L} onLogout={handleLogout} user={user} />;
-      case "app-edit": return <AppEditView onNavigate={setPage} L={L} dppData={activeProduct?.dppData} product={activeProduct} onAddProjectDPP={handleAddProjectDPP} onSave={handleSaveProduct} />;
-      case "app": return <AppView onNavigate={setPage} L={L} product={activeProduct} onAddProjectDPP={handleAddProjectDPP} onPublish={handlePublish} />;
+      case "app-edit": return <AppEditView onNavigate={setPage} L={L} dppData={activeProduct?.dppData} product={activeProduct} onAddProjectDPP={handleAddProjectDPP} onSave={handleSaveProduct} onReloadProduct={loadProductDetail} />;
+      case "app": return <AppView onNavigate={setPage} L={L} product={activeProduct} onAddProjectDPP={handleAddProjectDPP} onPublish={handlePublish} onReloadProduct={loadProductDetail} />;
       case "public-dpp": return (
         <div style={{ minHeight: "100vh", background: T.navy, display: "flex", justifyContent: "center", padding: "20px 0" }}>
           <div style={{ width: "100%", maxWidth: "min(780px, 92vw)", background: T.bg, borderRadius: 16, overflow: "hidden", boxShadow: "0 25px 60px rgba(0,0,0,0.3)" }}>

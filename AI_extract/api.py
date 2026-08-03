@@ -713,6 +713,71 @@ async def get_document_file(product_id: str, doc_id: str,
         return FileResponse(str(resolved), filename=doc.filename)
 
 
+# Bucket 5 item 2 (client feedback): the product image slot at the top of the
+# passport view was previously always a placeholder icon. This endpoint lets
+# an admin/editor upload/replace it. Stored as a Document row with
+# doc_type="product_image" so the frontend can prefer it over other images.
+_IMG_MIME_PREFIXES = ("image/",)
+_IMG_MAX_BYTES = 10 * 1024 * 1024  # 10 MB — plenty for product photos
+
+
+@app.post("/api/products/{product_id}/image")
+async def upload_product_image(
+    product_id: str,
+    file: UploadFile = File(...),
+    user: dict = Depends(require_role("admin", "editor")),
+):
+    """Attach or replace the product's display image. Replaces any prior
+    product_image doc atomically (DB row + file on disk)."""
+    ctype = (file.content_type or "").lower()
+    if not any(ctype.startswith(p) for p in _IMG_MIME_PREFIXES):
+        raise HTTPException(415, "Only image files are accepted")
+    # Sanitize filename before joining onto the uploads dir (B2 path traversal).
+    safe_name = Path(file.filename or "product-image").name
+    if not safe_name:
+        raise HTTPException(400, "Filename required")
+    data = await file.read()
+    if len(data) > _IMG_MAX_BYTES:
+        raise HTTPException(413, "Image too large (max 10MB)")
+    if not data:
+        raise HTTPException(400, "Empty file")
+    with session_scope() as db:
+        product = _owned_product(db, product_id, user["company_id"])
+        if not product:
+            raise HTTPException(404, "Product not found")
+        # Remove any prior product_image (DB row + file on disk if inside uploads root).
+        uploads_root = UPLOADS_DIR.resolve(strict=False)
+        for prior in repo.get_product_image_documents(db, product_id):
+            if prior.storage_path:
+                try:
+                    resolved = Path(prior.storage_path).resolve(strict=False)
+                    resolved.relative_to(uploads_root)   # only unlink files inside uploads root
+                    if resolved.exists() and resolved.is_file():
+                        resolved.unlink()
+                except (ValueError, OSError):
+                    logger.warning(f"Skipping unlink of prior image outside uploads: {prior.storage_path}")
+            repo.delete_document(db, prior.id)
+        # Persist the new file under the product's uploads directory.
+        dest_dir = UPLOADS_DIR / product_id
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        target = dest_dir / safe_name
+        # If a doc with the same name already exists (e.g. a source PDF), rename ours.
+        i = 1
+        while target.exists():
+            target = dest_dir / f"{target.stem}-{i}{target.suffix}"
+            i += 1
+        target.write_bytes(data)
+        doc = repo.add_document(
+            db, product_id,
+            filename=target.name,
+            storage_path=str(target),
+            size_bytes=target.stat().st_size,
+            doc_type="product_image",
+        )
+        return {"id": doc.id, "filename": doc.filename, "doc_type": doc.doc_type,
+                "size_bytes": doc.size_bytes}
+
+
 @app.post("/api/products/{product_id}/eval-reference")
 async def upload_eval_reference(product_id: str, file: UploadFile = File(...),
                                 user: dict = Depends(require_role("admin", "editor"))):
