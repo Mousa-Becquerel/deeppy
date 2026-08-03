@@ -87,13 +87,21 @@ unit DoP is for the insulating glass unit (GLA), not the window.
 declared standard — read the standard reference, not just the marketing prose.
    - A maintenance manual or installation guide for a product belongs to that \
 product's family (e.g., a window maintenance guide is DWS).
+   - **⚠ PTA is ONLY for pipes and tanks** (its full name is "Pipes-tanks and \
+ancillaries not in contact with water for human consumption"). PTA is NEVER \
+the right family for a mortar, plaster, coating, adhesive, sealant, insulation \
+board, brick, or window. If the product isn't literally a pipe or a tank, \
+PTA is wrong — pick the correct family from the list above instead of \
+defaulting here.
+
    - **MAS vs CEM vs CMG — the mortar/binder split (read carefully):**
      • **CEM** = the BINDER itself: cement, hydraulic lime, lime-based mortars, \
 geopolymers, gypsum binders sold as POWDER/SACK ready to mix with water. Keywords: \
 "calce idraulica", "legante", "binder", "hydraulic binder", "cementizio", "premiscelato", \
 "polvere", "sacco/sack". Look for EN 459 (building lime), EN 197 (cement). \
 A "bio-mortar" / "mortar for restoration / consolidation" sold dry in a sack \
-is CEM, **not** MAS.
+is CEM, **not** MAS or PTA. A product whose composition table lists "calce \
+idraulica", "calce naturale", "biochar" as main ingredients is CEM.
      • **MAS** = MASONRY UNITS (bricks, blocks, tiles) plus the *ancillary* mortar \
 specifically used to lay them. Keywords: "blocco", "block", "brick", "laterizio", \
 "mattone", "tile". Standards: EN 771 (units), EN 998 (masonry mortar). A masonry \

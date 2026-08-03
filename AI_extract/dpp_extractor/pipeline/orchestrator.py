@@ -21,6 +21,7 @@ from ..models.merge_result import MergeResult
 from ..ontology.enums import ProductFamily
 from .classify import ClassificationAgent
 from .extract import ExtractionAgent
+from .family_reconcile import reconcile_family
 from .grounding import verify_grounded_strings
 from .merge import merge_extractions
 from .postprocess import (
@@ -149,6 +150,15 @@ class PipelineOrchestrator:
             )
 
         passport, merge_result = merge_extractions(extraction_triples, family)
+
+        # ── Family reconciliation: composition ingredients as ground truth ──
+        # The classifier is per-doc and doesn't see the merged composition.
+        # Once ingredients are extracted, they're the strongest signal for
+        # what family the product actually belongs to. Override on strong
+        # disagreement (e.g. BIO-MORTAR classified as PTA but ingredients
+        # say CEM). Also re-normalizes is_expected on performance rows so
+        # the "Other properties" bucket reflects the corrected ontology.
+        family = reconcile_family(passport, family)
 
         # ── Post-processing: ontology-driven deterministic fills ──
         # 1. DoP/DoC/CE/Quality presence from classifications (no AI)
