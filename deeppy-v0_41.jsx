@@ -1451,6 +1451,10 @@ function AppEditView({ onNavigate, L, dppData, product, onAddProjectDPP, onSave 
   const [showUpload, setShowUpload] = useState(false);
   // Field edits captured by path, e.g. { "overview.product_info.weight": "13 kg" }
   const [edits, setEdits] = useState({});
+  // Item 7: user-added rows that don't exist in the extracted passport yet.
+  // Applied on Save Draft as APPENDS (not path-edits) to the corresponding
+  // arrays. Shape: { performance: [PerformanceValue], product_certifications: [{name, reference_number}] }.
+  const [additions, setAdditions] = useState({ performance: [], product_certifications: [] });
 
   // Persist edits: deep-merge into the passport and PATCH via the parent.
   // On success: clear `edits`, flash "Saved!". On failure: KEEP `edits` so
@@ -1458,7 +1462,8 @@ function AppEditView({ onNavigate, L, dppData, product, onAddProjectDPP, onSave 
   // they know the change didn't reach the server.
   const handleSave = async () => {
     const paths = Object.keys(edits);
-    if (!(onSave && product?.id && dppData?.passport && paths.length)) {
+    const hasAdditions = (additions.performance.length + additions.product_certifications.length) > 0;
+    if (!(onSave && product?.id && dppData?.passport && (paths.length || hasAdditions))) {
       // Nothing to save — flash the confirmation but don't touch state.
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
@@ -1477,11 +1482,23 @@ function AppEditView({ onNavigate, L, dppData, product, onAddProjectDPP, onSave 
         obj[leaf].confidence = "high";   // user-edited → high confidence
       }
     }
+    // Item 7: append custom rows before PATCH.
+    if (additions.performance.length) {
+      if (!next.performance) next.performance = { values: [] };
+      if (!Array.isArray(next.performance.values)) next.performance.values = [];
+      next.performance.values.push(...additions.performance);
+    }
+    if (additions.product_certifications.length) {
+      if (!next.compliance) next.compliance = {};
+      if (!Array.isArray(next.compliance.product_certifications)) next.compliance.product_certifications = [];
+      next.compliance.product_certifications.push(...additions.product_certifications);
+    }
     const result = await onSave(product.id, next, "Manual edit");
     setSaving(false);
     if (result && result.ok !== false) {
       // Success — edits are on the server, safe to drop the local overlay.
       setEdits({});
+      setAdditions({ performance: [], product_certifications: [] });
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
     } else {
@@ -1741,6 +1758,13 @@ function AppEditView({ onNavigate, L, dppData, product, onAddProjectDPP, onSave 
               </ColSec>
             </div>
           )}
+          {/* Item 7: custom user-added performance rows (pending Save Draft). */}
+          <CustomPerformanceAdder
+            L={L}
+            additions={additions.performance}
+            onAdd={(row) => setAdditions(p => ({ ...p, performance: [...p.performance, row] }))}
+            onRemove={(idx) => setAdditions(p => ({ ...p, performance: p.performance.filter((_, i) => i !== idx) }))}
+          />
         </>);
       }
 
@@ -2277,6 +2301,87 @@ function DonutChart({ seg }) {
     <circle cx={cx} cy={cy} r={r-sw} fill="white" />
   </svg>);
 }
+
+// ─── Custom performance row adder (item 7) ──────────────────────────────
+// Lets the user append a property that the AI didn't extract — a certification
+// number, a private test result, a custom unit. Held in local `additions` state
+// until Save Draft PATCHes it into passport.performance.values[].
+// Rows added here are marked is_expected=false so they land in the "Other"
+// bucket by default (they're not in the ontology whitelist).
+function CustomPerformanceAdder({ L, additions, onAdd, onRemove }) {
+  const it = L?.lang === "it";
+  const [open, setOpen] = useState(false);
+  const [name, setName] = useState("");
+  const [value, setValue] = useState("");
+  const [unit, setUnit] = useState("");
+  const [category, setCategory] = useState("Other");
+
+  const submit = () => {
+    if (!name.trim() || !value.trim()) return;
+    onAdd({
+      property_name: name.trim(),
+      category,
+      value: { value: value.trim(), confidence: "high", source: null, note: null },
+      unit: unit.trim() || null,
+      test_standard: null,
+      is_expected: false,   // custom rows are unrecognized by ontology
+    });
+    setName(""); setValue(""); setUnit(""); setCategory("Other");
+    setOpen(false);
+  };
+
+  return (<div style={{ marginTop: 12 }}>
+    {additions.length > 0 && (
+      <ColSec
+        title={it ? "Aggiunte manuali (non salvate)" : "Custom additions (unsaved)"}
+        iconD={ic.edit}
+        badge={<Badge color={T.amber} bg={T.amberSoft}>{additions.length}</Badge>}
+      >
+        {additions.map((row, i) => (
+          <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 4px", borderBottom: i < additions.length - 1 ? `1px solid ${T.borderLight}` : "none" }}>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 12, fontWeight: 600, color: T.textDark }}>{row.property_name}</div>
+              <div style={{ fontSize: 11, color: T.textSec }}>{row.category} · {row.value.value}{row.unit ? ` ${row.unit}` : ""}</div>
+            </div>
+            <button onClick={() => onRemove(i)} title={it?"Rimuovi":"Remove"} style={{ background: "none", border: "none", cursor: "pointer", padding: 4 }}><I d={ic.x} size={13} color={T.red} /></button>
+          </div>
+        ))}
+        <div style={{ padding: "6px 4px", fontSize: 10, color: T.textSec, fontStyle: "italic", marginTop: 4 }}>
+          {it ? "Verranno aggiunte al passaporto al prossimo Salva bozza." : "Will be added to the passport on the next Save Draft."}
+        </div>
+      </ColSec>
+    )}
+    {!open ? (
+      <button onClick={() => setOpen(true)} style={{ marginTop: 10, padding: "8px 14px", borderRadius: 6, border: `1px dashed ${T.border}`, background: "transparent", color: T.textSec, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: font, display: "inline-flex", alignItems: "center", gap: 6 }}>
+        <I d={ic.plus} size={12} color={T.textSec} />
+        {it ? "Aggiungi proprietà personalizzata" : "Add custom property"}
+      </button>
+    ) : (
+      <div style={{ marginTop: 10, padding: 14, borderRadius: 8, border: `1px solid ${T.accent}`, background: T.accentSoft + "20" }}>
+        <div style={{ fontSize: 11, fontWeight: 700, color: T.accentDark, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 10 }}>
+          {it ? "Nuova proprietà personalizzata" : "New custom property"}
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 8 }}>
+          <input value={name} onChange={e => setName(e.target.value)} placeholder={it ? "Nome proprietà (es. 'Ritenzione acqua')" : "Property name (e.g. 'Water retention')"} style={{ padding: "8px 10px", borderRadius: 5, border: `1px solid ${T.border}`, fontSize: 12, outline: "none", fontFamily: font }} />
+          <select value={category} onChange={e => setCategory(e.target.value)} style={{ padding: "8px 10px", borderRadius: 5, border: `1px solid ${T.border}`, fontSize: 12, outline: "none", fontFamily: font, background: T.bg }}>
+            {["Mechanical","Thermal","Acoustic","Fire","Durability","Environmental","Other"].map(c => <option key={c} value={c}>{c}</option>)}
+          </select>
+          <input value={value} onChange={e => setValue(e.target.value)} placeholder={it ? "Valore (es. '≤ 0.6')" : "Value (e.g. '≤ 0.6')"} style={{ padding: "8px 10px", borderRadius: 5, border: `1px solid ${T.border}`, fontSize: 12, outline: "none", fontFamily: font }} />
+          <input value={unit} onChange={e => setUnit(e.target.value)} placeholder={it ? "Unità (opzionale)" : "Unit (optional)"} style={{ padding: "8px 10px", borderRadius: 5, border: `1px solid ${T.border}`, fontSize: 12, outline: "none", fontFamily: font }} />
+        </div>
+        <div style={{ display: "flex", gap: 6 }}>
+          <button onClick={submit} disabled={!name.trim() || !value.trim()} style={{ padding: "6px 14px", borderRadius: 5, border: "none", background: (name.trim() && value.trim()) ? T.accent : T.border, color: T.navy, fontSize: 12, fontWeight: 700, cursor: (name.trim() && value.trim()) ? "pointer" : "not-allowed", fontFamily: font }}>
+            {it ? "Aggiungi" : "Add"}
+          </button>
+          <button onClick={() => { setOpen(false); setName(""); setValue(""); setUnit(""); }} style={{ padding: "6px 14px", borderRadius: 5, border: `1px solid ${T.border}`, background: "none", color: T.textSec, fontSize: 12, cursor: "pointer", fontFamily: font }}>
+            {it ? "Annulla" : "Cancel"}
+          </button>
+        </div>
+      </div>
+    )}
+  </div>);
+}
+
 
 // ─── Version-history tab with inline edit/delete (item 12) ───────────────
 // Renders the real version list from state, but each row has hover-revealed
