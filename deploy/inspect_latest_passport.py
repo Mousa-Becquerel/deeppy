@@ -16,7 +16,11 @@ from __future__ import annotations
 
 import sys
 
-from sqlalchemy import desc
+from sqlalchemy import desc as sql_desc  # aliased so `desc` isn't shadowed
+                                          # by a local variable in main() (a
+                                          # materials-loop assignment silently
+                                          # promoted `desc` to a local var and
+                                          # broke the query).
 
 from dpp_extractor.db import session_scope, models
 
@@ -29,7 +33,7 @@ def _val(node):
 
 def main() -> None:
     with session_scope() as db:
-        p = db.query(models.Product).order_by(desc(models.Product.created_at)).first()
+        p = db.query(models.Product).order_by(sql_desc(models.Product.created_at)).first()
         if not p:
             print("no products in DB")
             return
