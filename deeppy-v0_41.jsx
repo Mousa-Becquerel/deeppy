@@ -919,7 +919,7 @@ function OnboardingUpload({ onNavigate, L, onExtracted, presetType = null }) {
 }
 
 // ─── COMPONENTI TAB (shared edit + published) ────────────
-function ComponentiTab({ editMode, onNavigate, L, dppData }) {
+function ComponentiTab({ editMode, onNavigate, L, dppData, blankShell = false }) {
   const _ = k => t(k, L?.lang);
   const it = L?.lang === "it";
   const _pp = dppData?.passport;
@@ -968,7 +968,12 @@ function ComponentiTab({ editMode, onNavigate, L, dppData }) {
     { id: "m3", linked: false, genericName: "Other components", detail: "3% — 0.07 kg/m² — Origine mista", source: "EPD", conf: "high" },
   ];
 
-  const [components, setComponents] = useState(_pp?.composition?.materials?.length ? buildFromPassport() : demoComponents);
+  // Bucket 5 item 8: in the "Skip and fill manually" flow (blank shell) we
+  // must NOT fall back to the XPS demo components — start empty instead.
+  const initialComponents = _pp?.composition?.materials?.length
+    ? buildFromPassport()
+    : (blankShell ? [] : demoComponents);
+  const [components, setComponents] = useState(initialComponents);
   // Re-sync when real passport data arrives (e.g. after detail load).
   useEffect(() => {
     if (_pp?.composition?.materials?.length) setComponents(buildFromPassport());
@@ -1166,6 +1171,12 @@ function ComponentiTab({ editMode, onNavigate, L, dppData }) {
         </div>
       </div>
 
+      {/* Bucket 5 item 3: Packaging section (typed schema). Sits right after
+          Product Structure per client request. Read-only rendering of
+          composition.packaging entries; add-row happens in the edit mode.
+          Extractor doesn't fill this yet — entries are user-authored for now. */}
+      <PackagingSection L={L} editMode={editMode} dppData={dppData} />
+
       {/* Responsibility */}
       {components.filter(c => c.linked).length > 0 && (
       <div style={{ background: T.bg, borderRadius: 10, border: `1px solid ${T.border}`, padding: "14px 18px" }}>
@@ -1181,6 +1192,145 @@ function ComponentiTab({ editMode, onNavigate, L, dppData }) {
         </div>
       </div>
       )}
+    </div>
+  );
+}
+
+// Bucket 5 item 3: Packaging section for the Composition tab. Read-only
+// rendering of composition.packaging entries plus (in edit mode) inline
+// add/remove. Extraction doesn't populate this yet, so the empty state is
+// the common case and it stays out of the way until someone adds a row.
+function PackagingSection({ L, editMode, dppData }) {
+  const it = L?.lang === "it";
+  const _pp = dppData?.passport;
+  const _mv = (m, f) => { const x = m?.[f]; return (x && typeof x === "object") ? x.value : x; };
+  const initial = _pp?.composition?.packaging || [];
+  const [rows, setRows] = useState(initial);
+  useEffect(() => { setRows(_pp?.composition?.packaging || []); }, [dppData]);
+  const [draft, setDraft] = useState({ material: "", weight_per_unit_kg: "", weight_per_pallet_kg: "", recyclability: "", notes: "" });
+  const [adding, setAdding] = useState(false);
+
+  const addRow = () => {
+    if (!draft.material.trim()) return;
+    // Wrap raw values as ExtractedField-shaped objects so the row survives
+    // a passport round-trip once wired into save.
+    const wrap = (v) => (v === "" || v == null) ? { value: null, confidence: "high" } : { value: v, confidence: "high" };
+    setRows(p => [...p, {
+      material: wrap(draft.material.trim()),
+      weight_per_unit_kg: wrap(draft.weight_per_unit_kg === "" ? null : Number(draft.weight_per_unit_kg)),
+      weight_per_pallet_kg: wrap(draft.weight_per_pallet_kg === "" ? null : Number(draft.weight_per_pallet_kg)),
+      recyclability: wrap(draft.recyclability.trim()),
+      notes: wrap(draft.notes.trim()),
+    }]);
+    setDraft({ material: "", weight_per_unit_kg: "", weight_per_pallet_kg: "", recyclability: "", notes: "" });
+    setAdding(false);
+  };
+  const removeRow = (idx) => setRows(p => p.filter((_, i) => i !== idx));
+
+  const label = (kg) => kg == null || kg === "" ? "—" : `${kg} kg`;
+  const rec = (v) => {
+    const s = String(v || "").trim().toLowerCase();
+    if (!s) return it ? "n.d." : "—";
+    if (s === "yes" || s === "sì" || s === "si") return it ? "Riciclabile" : "Recyclable";
+    if (s === "no") return it ? "Non riciclabile" : "Not recyclable";
+    if (s === "partial") return it ? "Parzialmente" : "Partial";
+    return v;   // freeform
+  };
+
+  return (
+    <div style={{ background: T.bg, borderRadius: 10, border: `1px solid ${T.border}`, overflow: "hidden", marginBottom: 16 }}>
+      <div style={{ padding: "14px 18px", borderBottom: `1px solid ${T.borderLight}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <I d={ic.box} size={16} color={T.accentDark} />
+          <span style={{ fontSize: 15, fontWeight: 700, color: T.textDark }}>{it ? "Imballaggio" : "Packaging"}</span>
+          <Badge color={T.textSec} bg={T.bgSoft}>{rows.length}</Badge>
+        </div>
+        {editMode && !adding && (
+          <button
+            onClick={() => setAdding(true)}
+            style={{ display: "flex", alignItems: "center", gap: 4, padding: "5px 10px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.bg, cursor: "pointer", fontFamily: font, fontSize: 11, fontWeight: 600, color: T.textDark }}
+          >
+            <I d={ic.plus} size={11} color={T.textDark} />
+            {it ? "Aggiungi" : "Add"}
+          </button>
+        )}
+      </div>
+
+      <div style={{ padding: "12px 18px" }}>
+        {rows.length === 0 && !adding && (
+          <div style={{ padding: "18px 12px", textAlign: "center", color: T.textSec, fontSize: 12, fontStyle: "italic" }}>
+            {it
+              ? "Nessuna informazione sull'imballaggio. Clicca «Aggiungi» per registrarla manualmente."
+              : "No packaging data yet. Click 'Add' to enter it manually."}
+          </div>
+        )}
+
+        {rows.map((r, i) => (
+          <div key={i} style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr 1fr 1fr 2fr auto", gap: 10, alignItems: "center", padding: "10px 0", borderBottom: i < rows.length - 1 ? `1px solid ${T.borderLight}` : "none" }}>
+            <div>
+              <div style={{ fontSize: 10, fontWeight: 600, color: T.textSec, textTransform: "uppercase" }}>{it ? "Materiale" : "Material"}</div>
+              <div style={{ fontSize: 13, fontWeight: 700, color: T.navy }}>{_mv(r, "material") || "—"}</div>
+            </div>
+            <div>
+              <div style={{ fontSize: 10, fontWeight: 600, color: T.textSec, textTransform: "uppercase" }}>{it ? "Peso/unità" : "Weight / unit"}</div>
+              <div style={{ fontSize: 13, fontWeight: 600, color: T.textDark, fontFamily: "'JetBrains Mono',monospace" }}>{label(_mv(r, "weight_per_unit_kg"))}</div>
+            </div>
+            <div>
+              <div style={{ fontSize: 10, fontWeight: 600, color: T.textSec, textTransform: "uppercase" }}>{it ? "Peso/pallet" : "Weight / pallet"}</div>
+              <div style={{ fontSize: 13, fontWeight: 600, color: T.textDark, fontFamily: "'JetBrains Mono',monospace" }}>{label(_mv(r, "weight_per_pallet_kg"))}</div>
+            </div>
+            <div>
+              <div style={{ fontSize: 10, fontWeight: 600, color: T.textSec, textTransform: "uppercase" }}>{it ? "Riciclabilità" : "Recyclability"}</div>
+              <div style={{ fontSize: 12, fontWeight: 600, color: T.textDark }}>{rec(_mv(r, "recyclability"))}</div>
+            </div>
+            <div>
+              <div style={{ fontSize: 10, fontWeight: 600, color: T.textSec, textTransform: "uppercase" }}>{it ? "Note" : "Notes"}</div>
+              <div style={{ fontSize: 12, color: T.textDark, lineHeight: 1.35 }}>{_mv(r, "notes") || "—"}</div>
+            </div>
+            {editMode && (
+              <button onClick={() => removeRow(i)} title={it ? "Rimuovi" : "Remove"} style={{ background: "none", border: "none", cursor: "pointer", padding: 4 }}>
+                <I d={ic.x} size={14} color={T.textSec} />
+              </button>
+            )}
+          </div>
+        ))}
+
+        {editMode && adding && (
+          <div style={{ marginTop: 10, padding: "12px 14px", borderRadius: 8, border: `1px solid ${T.accent}`, background: T.accentSoft + "20" }}>
+            <div style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr 1fr 1fr", gap: 8, marginBottom: 8 }}>
+              <div>
+                <div style={{ fontSize: 10, fontWeight: 700, color: T.textSec, marginBottom: 3 }}>{it ? "Materiale *" : "Material *"}</div>
+                <input value={draft.material} onChange={e => setDraft(d => ({ ...d, material: e.target.value }))} placeholder={it ? "Es. Film HDPE" : "e.g. HDPE film"} style={{ width: "100%", padding: "6px 9px", borderRadius: 6, border: `1px solid ${T.border}`, fontSize: 11, fontFamily: font, outline: "none" }} />
+              </div>
+              <div>
+                <div style={{ fontSize: 10, fontWeight: 700, color: T.textSec, marginBottom: 3 }}>{it ? "Peso/unità (kg)" : "Weight / unit (kg)"}</div>
+                <input type="number" step="0.001" value={draft.weight_per_unit_kg} onChange={e => setDraft(d => ({ ...d, weight_per_unit_kg: e.target.value }))} placeholder="0.05" style={{ width: "100%", padding: "6px 9px", borderRadius: 6, border: `1px solid ${T.border}`, fontSize: 11, fontFamily: font, outline: "none" }} />
+              </div>
+              <div>
+                <div style={{ fontSize: 10, fontWeight: 700, color: T.textSec, marginBottom: 3 }}>{it ? "Peso/pallet (kg)" : "Weight / pallet (kg)"}</div>
+                <input type="number" step="0.01" value={draft.weight_per_pallet_kg} onChange={e => setDraft(d => ({ ...d, weight_per_pallet_kg: e.target.value }))} placeholder="24" style={{ width: "100%", padding: "6px 9px", borderRadius: 6, border: `1px solid ${T.border}`, fontSize: 11, fontFamily: font, outline: "none" }} />
+              </div>
+              <div>
+                <div style={{ fontSize: 10, fontWeight: 700, color: T.textSec, marginBottom: 3 }}>{it ? "Riciclabilità" : "Recyclability"}</div>
+                <select value={draft.recyclability} onChange={e => setDraft(d => ({ ...d, recyclability: e.target.value }))} style={{ width: "100%", padding: "6px 9px", borderRadius: 6, border: `1px solid ${T.border}`, fontSize: 11, fontFamily: font, outline: "none", background: T.bg }}>
+                  <option value=""></option>
+                  <option value="yes">{it ? "Sì" : "Yes"}</option>
+                  <option value="no">No</option>
+                  <option value="partial">{it ? "Parziale" : "Partial"}</option>
+                </select>
+              </div>
+            </div>
+            <div style={{ marginBottom: 8 }}>
+              <div style={{ fontSize: 10, fontWeight: 700, color: T.textSec, marginBottom: 3 }}>{it ? "Note" : "Notes"}</div>
+              <input value={draft.notes} onChange={e => setDraft(d => ({ ...d, notes: e.target.value }))} placeholder={it ? "Es. Rientra in un circuito di reso" : "e.g. Included in a return scheme"} style={{ width: "100%", padding: "6px 9px", borderRadius: 6, border: `1px solid ${T.border}`, fontSize: 11, fontFamily: font, outline: "none" }} />
+            </div>
+            <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
+              <button onClick={() => { setAdding(false); setDraft({ material: "", weight_per_unit_kg: "", weight_per_pallet_kg: "", recyclability: "", notes: "" }); }} style={{ padding: "5px 12px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.bg, cursor: "pointer", fontFamily: font, fontSize: 11, fontWeight: 600, color: T.textDark }}>{it ? "Annulla" : "Cancel"}</button>
+              <button onClick={addRow} disabled={!draft.material.trim()} style={{ padding: "5px 12px", borderRadius: 6, border: `1px solid ${T.accent}`, background: draft.material.trim() ? T.accent : T.border, color: T.navy, cursor: draft.material.trim() ? "pointer" : "not-allowed", fontFamily: font, fontSize: 11, fontWeight: 700 }}>{it ? "Aggiungi" : "Add"}</button>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -1630,11 +1780,20 @@ function AppEditView({ onNavigate, L, dppData, product, onAddProjectDPP, onSave,
   const [projCreated, setProjCreated] = useState(false);
 
   // AI data resolution
-  const pp = dppData?.passport;
+  const rawPP = dppData?.passport;
   const stats = dppData?.stats;
+  // Bucket 5 item 8 (client feedback): when the user opens the editor via
+  // "Skip and fill manually" with no product and no extraction, we used to
+  // fall through to hardcoded XPS demo values in every EF-fallback branch.
+  // Detect that state and treat it as an empty passport instead — hasAI
+  // becomes true so the demo branches never fire, and every d(path) returns
+  // {} which the EF component renders as "Missing data — click to enter".
+  const blankShell = !rawPP && !product?.id;
+  const pp = rawPP || (blankShell ? {} : rawPP);
   const d = (path) => _ef(pp, path);
-  const hasAI = !!pp;
-  const initCompleteness = stats?.completeness ?? 87;
+  const hasAI = !!rawPP || blankShell;
+  // Bucket 5 item 8: blank shell starts at 0%, not the demo 87%.
+  const initCompleteness = stats?.completeness ?? (blankShell ? 0 : 87);
   const [completeness, setCompleteness] = useState(initCompleteness);
   useEffect(() => { if (stats?.completeness != null) setCompleteness(Math.round(stats.completeness)); }, [stats?.completeness]);
   // Item 1: sync `selectedVariant` from server-persisted choice on load /
@@ -1822,7 +1981,10 @@ function AppEditView({ onNavigate, L, dppData, product, onAddProjectDPP, onSave,
           belong to the Batch or Item level, not the general product Model.
           Product image + sale type will get their own dedicated homes in a
           later polish pass; for now they're accessible via the raw passport. */}
-      <ColSec title={_("versionHistory")} iconD={ic.clock} defaultOpen={false}>
+      {/* Bucket 5 item 8: version history is hardcoded demo data — hide the
+          whole card in blank-shell mode so a fresh manual entry doesn't
+          fake a version trail. Real version history lives in its own tab. */}
+      {!blankShell && (<ColSec title={_("versionHistory")} iconD={ic.clock} defaultOpen={false}>
         <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
           {[
             { ver: "v1.2", date: "Feb 18, 2026", label: "Current", docs: "+FPC Certificate", fields: "+3 fields" },
@@ -1845,10 +2007,10 @@ function AppEditView({ onNavigate, L, dppData, product, onAddProjectDPP, onSave,
             </div>
           ))}
         </div>
-      </ColSec>
-      <div style={{ marginTop: 4 }}><SupplyMap dppData={dppData} /></div>
+      </ColSec>)}
+      {!blankShell && <div style={{ marginTop: 4 }}><SupplyMap dppData={dppData} /></div>}
     </>);
-    case "composizione": return (<ComponentiTab editMode={true} onNavigate={onNavigate} L={L} dppData={dppData} />);
+    case "composizione": return (<ComponentiTab editMode={true} onNavigate={onNavigate} L={L} dppData={dppData} blankShell={blankShell} />);
     case "prestazioni": {
       const perfValuesRaw = hasAI ? (pp?.performance?.values || []) : null;
       // Item 1: apply SKU-variant filter first so the "expected/other" counts
@@ -1996,7 +2158,10 @@ function AppEditView({ onNavigate, L, dppData, product, onAddProjectDPP, onSave,
     </>);
     case "lifecycle": return (<LifecycleTab L={L} dppData={dppData} />);
     case "documenti": {
-      const sourceDocs = hasAI ? (pp?.metadata?.source_documents || []) : ["DoP-XPS100-2026-001.pdf","Scheda-Tecnica-XPS100.pdf","EPD-XPS100-2025.pdf"];
+      // Bucket 5 item 8: no fake DoP/Scheda/EPD filenames in blank-shell mode.
+      const sourceDocs = hasAI
+        ? (pp?.metadata?.source_documents || [])
+        : (blankShell ? [] : ["DoP-XPS100-2026-001.pdf","Scheda-Tecnica-XPS100.pdf","EPD-XPS100-2025.pdf"]);
       return (<>
       <ColSec title={_("analyzedDocs")} iconD={ic.file} badge={<Badge color={T.accentDark} bg={T.accentSoft}>{sourceDocs.length} file</Badge>}>
         {sourceDocs.map((name,i)=>(
@@ -2078,6 +2243,9 @@ function AppEditView({ onNavigate, L, dppData, product, onAddProjectDPP, onSave,
       <Btn primary onClick={()=>onNavigate("onboard-item")} style={{ margin: "0 auto" }}><I d={ic.upload} size={14} color={T.navy} /> {it?"Carica documenti":"Upload documents"}</Btn>
     </div>);
     case "versioni": {
+      // Bucket 5 item 8: in blank-shell mode there's no product yet, so no
+      // version history to show — an empty state beats fake demo versions.
+      if (blankShell) return (<Card title={it?"Cronologia Versioni":"Version History"} iconD={ic.clock}><div style={{ padding: "24px 18px", fontSize: 12, color: T.textSec, fontStyle: "italic", textAlign: "center" }}>{it?"Nessuna versione. Salva la bozza per creare la prima versione.":"No versions yet. Save the draft to create the first version."}</div></Card>);
       const versions = [
         { ver: "v2.3", date: "2 Mar 2026", author: "Sistema", changes: [
           { type: "updated", field: it?"Resistenza termica R":"Thermal resistance R", from: "2.85", to: "2.94 m²·K/W", section: it?"Dati Tecnici":"Technical" },

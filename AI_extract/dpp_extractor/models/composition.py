@@ -41,6 +41,37 @@ class MaterialEntry(BaseModel):
     suppliers: list[SupplierData] = Field(default_factory=list)
 
 
+class PackagingEntry(BaseModel):
+    """A single packaging item (bucket 5 item 3 — typed schema for the
+    Packaging card that sits under Product Structure). Extraction won't fill
+    this yet; the UI surfaces any rows present so users can add them manually
+    or via a later extractor pass."""
+    material: ExtractedField[str] = Field(
+        default_factory=ExtractedField,
+        description="Packaging material (e.g. 'HDPE film', 'wooden pallet', 'cardboard')",
+    )
+    weight_per_unit_kg: ExtractedField[float] = Field(
+        default_factory=ExtractedField,
+        description="Weight of packaging per product unit (kg)",
+    )
+    weight_per_pallet_kg: ExtractedField[float] = Field(
+        default_factory=ExtractedField,
+        description="Weight of packaging per full pallet (kg)",
+    )
+    recyclability: ExtractedField[str] = Field(
+        default_factory=ExtractedField,
+        description="'yes' / 'no' / 'partial' — free text if the source uses another phrasing",
+    )
+    notes: ExtractedField[str] = Field(
+        default_factory=ExtractedField,
+        description="Freeform notes (e.g. return scheme, label of recycling stream)",
+    )
+
+
 class CompositionSection(BaseModel):
     """Complete Composition section of the DPP."""
     materials: list[MaterialEntry] = Field(default_factory=list)
+    packaging: list[PackagingEntry] = Field(
+        default_factory=list,
+        description="Packaging items — surfaced by the UI's Packaging card",
+    )
