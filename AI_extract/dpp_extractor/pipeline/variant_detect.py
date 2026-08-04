@@ -30,6 +30,11 @@ logger = logging.getLogger(__name__)
 
 _QUALIFIER_RE = re.compile(r"\(([^)]+)\)\s*$")
 
+# Anything wrapped in square brackets is a unit tag added by the extractor
+# (e.g. "Recycled content ([%])" → qualifier == "[%]"), never a real SKU
+# variant. Same for percentage-only strings.
+_BRACKETED_UNIT_RE = re.compile(r"^\[[^\]]+\]$")
+
 # Qualifiers that are NEVER product-variant tags — they're units, method
 # labels, or measurement contexts. Filter them out so we don't offer the user
 # a "which SKU?" prompt for "(class)" or "(Uw)".
@@ -39,6 +44,9 @@ _NON_VARIANT_QUALIFIERS = {
     "measured", "misurato", "declared", "dichiarato",
     # canonical unit-like labels the normalizer sometimes leaves as qualifiers
     "uw", "ug", "uf", "psi", "lambda", "rw", "u", "r",
+    # common unit shorthands the extractor sometimes appends as a qualifier
+    "%", "kgco2eq", "m3", "m2", "mj", "kg", "kwh", "n/mm2", "n/mm²",
+    "w/mk", "w/m²k", "w/mk²", "mm", "cm", "m",
 }
 
 
@@ -51,6 +59,8 @@ def _strip_qualifier(name: str) -> tuple[str, str | None]:
     qual = m.group(1).strip()
     if qual.lower() in _NON_VARIANT_QUALIFIERS:
         return name, None   # keep the qualifier — it's a unit/method, not a variant
+    if _BRACKETED_UNIT_RE.match(qual):
+        return name, None   # "[%]" / "[kgCO2eq]" — extractor-added unit tag, not a variant
     return base, qual
 
 

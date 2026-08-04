@@ -214,10 +214,20 @@ def reconcile_family(
 
     # Update the passport's own view of the family so downstream serializers
     # and the frontend badge reflect the correction.
+    #
+    # Three places store the family and they MUST all agree, otherwise:
+    #   • metadata.product_family              → frontend banner / stats read this
+    #   • overview.product_info.product_family → frontend badge reads this
+    #   • overview.product_info.product_family_code → repository.derive_hot_columns()
+    #     reads THIS FIRST for the `family_code` hot column that drives list
+    #     search and the AppView Model tab badge. Missing this update was why
+    #     BIO-MORTAR's hot column stayed 'PTA' even after the reconciler ran
+    #     (product family metadata read CEM, but every UI-visible field kept PTA).
     try:
         passport.metadata.product_family = suggested
     except AttributeError:
         pass
+    _update_overview_family(passport, suggested)
 
     # Re-run the performance normalizer with the correct family so
     # `is_expected` reflects the corrected ontology list. Fields that were
@@ -226,6 +236,36 @@ def reconcile_family(
     _renormalize_performance(passport, suggested)
 
     return suggested
+
+
+def _update_overview_family(passport: DigitalProductPassport, family: ProductFamily) -> None:
+    """Sync overview.product_info.product_family + product_family_code with the
+    reconciled family. Preserves the source/confidence attached to whichever
+    field already had them, but forcibly overwrites the value + marks a note
+    so a user reviewing the field can see why it changed."""
+    try:
+        pi = passport.overview.product_info
+    except AttributeError:
+        return
+    note = f"Reconciled from composition ingredients (was: {getattr(getattr(pi, 'product_family_code', None), 'value', '?')!r})"
+    # product_family — full descriptive name (matches enum .value)
+    pf = getattr(pi, "product_family", None)
+    if pf is not None:
+        try:
+            pf.value = family.value
+            pf.confidence = "high"
+            pf.note = note
+        except AttributeError:
+            pass
+    # product_family_code — short CPR-style code (matches enum .name)
+    pfc = getattr(pi, "product_family_code", None)
+    if pfc is not None:
+        try:
+            pfc.value = family.name
+            pfc.confidence = "high"
+            pfc.note = note
+        except AttributeError:
+            pass
 
 
 def _renormalize_performance(

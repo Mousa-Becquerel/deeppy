@@ -156,16 +156,27 @@ CEM_PERFORMANCE: list[PerformanceField] = [
     PerformanceField("Tensile strength", PerformanceCategory.MECHANICAL, "N/mm2"),
     PerformanceField("Flexural strength", PerformanceCategory.MECHANICAL, "N/mm2"),
     PerformanceField("Elasticity modulus", PerformanceCategory.MECHANICAL, "N/mm2"),
+    # Bucket 5 followup: mortar-specific rheology properties surface on every
+    # restoration/repair mortar DoP but were landing in "Other" against the
+    # generic CEM list. Adding them here so BIO-MORTAR + similar products
+    # show them as recognized rather than "Other properties".
+    PerformanceField("Thixotropy", PerformanceCategory.MECHANICAL),
     # Thermal
     PerformanceField("Thermal conductivity", PerformanceCategory.THERMAL, "W/mK"),
     PerformanceField("Thermal resistance", PerformanceCategory.THERMAL, "m2K/W"),
     PerformanceField("Expansion coefficient", PerformanceCategory.THERMAL, "1/K"),
     PerformanceField("Permeability to water vapor", PerformanceCategory.THERMAL, "g/m^2*24h"),
+    PerformanceField("Breathability", PerformanceCategory.THERMAL),
     # Fire
     PerformanceField("Fire resistance classification", PerformanceCategory.FIRE, "Class"),
     PerformanceField("Reaction to fire", PerformanceCategory.FIRE, "Euroclass"),
     # Durability
     PerformanceField("Resistance to freeze-thaw cycles", PerformanceCategory.DURABILITY, "Class"),
+    PerformanceField("Water absorption", PerformanceCategory.DURABILITY, "kg/m2*min0.5"),
+    PerformanceField("Compatibility", PerformanceCategory.DURABILITY),
+    # Application / finishing — mortar & plaster DoPs commonly declare these.
+    PerformanceField("Setting time", PerformanceCategory.MECHANICAL, "min"),
+    PerformanceField("Finish", PerformanceCategory.MECHANICAL),
     # Environmental (full set — consistent across all families)
     PerformanceField("Release of dangerous substances (VOC)", PerformanceCategory.ENVIRONMENTAL),
     PerformanceField("Recycled content", PerformanceCategory.ENVIRONMENTAL, "%"),
