@@ -1582,11 +1582,15 @@ function LifecycleTab({ L, dppData }) {
 
 // ─── DPP DATA HELPER ─────────────────────────────────────
 function _ef(passport, path) {
-  if (!passport) return {};
+  // Blank-shell fix: even when the passport doesn't have a value at this
+  // path, we MUST return { path } so EF can track edits under that path.
+  // Without this, EF sees path=undefined, its onChange guard `path && setEdits`
+  // silently drops every keystroke — you type in the field and nothing sticks.
+  if (!passport) return { path };
   const parts = path.split(".");
   let obj = passport;
-  for (const p of parts) { obj = obj?.[p]; if (obj === undefined || obj === null) return {}; }
-  if (typeof obj !== "object" || !("value" in obj)) return {};
+  for (const p of parts) { obj = obj?.[p]; if (obj === undefined || obj === null) return { path }; }
+  if (typeof obj !== "object" || !("value" in obj)) return { path };
   const src = obj.source;
   const srcStr = src ? (typeof src === "string" ? src : `${src.document_name || ""}${src.page ? `, p. ${src.page}` : ""}`) : null;
   // Item 4 (full): also expose the structured source so EF can turn the
@@ -1692,7 +1696,7 @@ function ProductImageSlot({ product, size = 120, editable = true, familyShort = 
 }
 
 // ─── APP EDIT VIEW (DRAFT) ───────────────────────────────
-function AppEditView({ onNavigate, L, dppData, product, onAddProjectDPP, onSave, onReloadProduct }) {
+function AppEditView({ onNavigate, L, dppData, product, onAddProjectDPP, onSave, onReloadProduct, onCreateBlankProduct }) {
   const _ = k => t(k, L?.lang);
   const [tab, setTab] = useState("panoramica");
   const [chatOpen, setChatOpen] = useState(false);
@@ -1723,7 +1727,7 @@ function AppEditView({ onNavigate, L, dppData, product, onAddProjectDPP, onSave,
   const handleSave = async () => {
     const paths = Object.keys(edits);
     const hasAdditions = (additions.performance.length + additions.product_certifications.length) > 0;
-    if (!(onSave && product?.id && dppData?.passport && (paths.length || hasAdditions))) {
+    if (!onSave || (!paths.length && !hasAdditions)) {
       // Nothing to save — flash the confirmation but don't touch state.
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
@@ -1731,15 +1735,48 @@ function AppEditView({ onNavigate, L, dppData, product, onAddProjectDPP, onSave,
     }
     setSaving(true);
     setSaveError(null);
-    const next = JSON.parse(JSON.stringify(dppData.passport));
+
+    // Blank-shell fix: no product yet? Create one on the fly so we have
+    // something to PATCH. onCreateBlankProduct also updates parent state
+    // (products list + activeProductId) so subsequent renders see the new
+    // product. If it fails, keep edits + show an error banner.
+    let productId = product?.id;
+    if (!productId) {
+      if (typeof onCreateBlankProduct !== "function") {
+        setSaving(false);
+        setSaveError("Cannot save — no product context available.");
+        return;
+      }
+      productId = await onCreateBlankProduct();
+      if (!productId) {
+        setSaving(false);
+        setSaveError("Could not create a new draft. Please retry or refresh.");
+        return;
+      }
+    }
+
+    // Deep-clone the current passport (or start from an empty shell) then
+    // fold in every edit as { value, confidence: "high" } at the right path.
+    // For paths whose parent objects don't exist yet (blank shell), build
+    // the object graph as we walk down so the edit doesn't get dropped.
+    const next = dppData?.passport
+      ? JSON.parse(JSON.stringify(dppData.passport))
+      : {};
     for (const path of paths) {
       const parts = path.split(".");
       let obj = next;
-      for (let i = 0; i < parts.length - 1; i++) obj = obj?.[parts[i]];
+      for (let i = 0; i < parts.length - 1; i++) {
+        const key = parts[i];
+        if (obj[key] == null || typeof obj[key] !== "object") obj[key] = {};
+        obj = obj[key];
+      }
       const leaf = parts[parts.length - 1];
-      if (obj && obj[leaf] && typeof obj[leaf] === "object") {
+      // Wrap as ExtractedField shape so the field renders correctly on reload.
+      if (obj[leaf] && typeof obj[leaf] === "object" && "value" in obj[leaf]) {
         obj[leaf].value = edits[path];
-        obj[leaf].confidence = "high";   // user-edited → high confidence
+        obj[leaf].confidence = "high";
+      } else {
+        obj[leaf] = { value: edits[path], confidence: "high" };
       }
     }
     // Item 7: append custom rows before PATCH.
@@ -1753,7 +1790,7 @@ function AppEditView({ onNavigate, L, dppData, product, onAddProjectDPP, onSave,
       if (!Array.isArray(next.compliance.product_certifications)) next.compliance.product_certifications = [];
       next.compliance.product_certifications.push(...additions.product_certifications);
     }
-    const result = await onSave(product.id, next, "Manual edit");
+    const result = await onSave(productId, next, "Manual edit");
     setSaving(false);
     if (result && result.ok !== false) {
       // Success — edits are on the server, safe to drop the local overlay.
@@ -5267,6 +5304,33 @@ export default function DeePPy() {
     }
   };
 
+  // "Skip and fill manually" flow: create an empty product on the server,
+  // register it in local state, activate it, and return its id. Without this,
+  // the blank-shell editor had nothing to PATCH against — every keystroke got
+  // dropped in handleSave's `product?.id && dppData?.passport` guard.
+  const handleCreateBlankProduct = async () => {
+    try {
+      const res = await fetch("/api/products", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ passport: {} }),
+      });
+      if (!res.ok) {
+        console.error(`Create product failed [${res.status}]`);
+        return null;
+      }
+      const api = await res.json();
+      const p = apiToProduct(api);
+      setProducts(prev => [p, ...prev.filter(x => x.id !== p.id)]);
+      setActiveProductId(p.id);
+      return p.id;
+    } catch (e) {
+      console.error("Create product exception:", e);
+      return null;
+    }
+  };
+
   // Save edits to a product's passport (PATCH) + refresh from server.
   // Returns { ok: true } on success, or { ok: false, status, detail } so the
   // caller can distinguish "saved" from "silently ate my edits" — the client
@@ -5361,7 +5425,7 @@ export default function DeePPy() {
       case "documents": return <DocumentsView onNavigate={setPage} L={L} onLogout={handleLogout} user={user} />;
       case "team": return <TeamView onNavigate={setPage} L={L} onLogout={handleLogout} user={user} />;
       case "settings": return <SettingsView onNavigate={setPage} L={L} onLogout={handleLogout} user={user} />;
-      case "app-edit": return <AppEditView onNavigate={setPage} L={L} dppData={activeProduct?.dppData} product={activeProduct} onAddProjectDPP={handleAddProjectDPP} onSave={handleSaveProduct} onReloadProduct={loadProductDetail} />;
+      case "app-edit": return <AppEditView onNavigate={setPage} L={L} dppData={activeProduct?.dppData} product={activeProduct} onAddProjectDPP={handleAddProjectDPP} onSave={handleSaveProduct} onReloadProduct={loadProductDetail} onCreateBlankProduct={handleCreateBlankProduct} />;
       case "app": return <AppView onNavigate={setPage} L={L} product={activeProduct} onAddProjectDPP={handleAddProjectDPP} onPublish={handlePublish} onReloadProduct={loadProductDetail} />;
       case "public-dpp": return (
         <div style={{ minHeight: "100vh", background: T.navy, display: "flex", justifyContent: "center", padding: "20px 0" }}>

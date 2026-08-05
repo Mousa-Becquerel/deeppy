@@ -527,6 +527,30 @@ async def list_products(user: dict = Depends(get_current_user)):
         return [_product_summary(p) for p in repo.list_products(db, company_id=user["company_id"])]
 
 
+class ProductCreate(BaseModel):
+    """Optional body for POST /api/products — everything defaults to empty."""
+    passport: Optional[dict] = None
+
+
+@app.post("/api/products", status_code=201)
+async def create_blank_product(body: Optional[ProductCreate] = None,
+                               user: dict = Depends(require_role("admin", "editor"))):
+    """Create an empty product shell. Used by the "Skip and fill manually"
+    flow so subsequent PATCHes have a real product_id to target — otherwise
+    every keystroke in blank-shell mode was silently lost with no place to
+    store the draft. Passport defaults to {}; extraction can populate later."""
+    payload = body or ProductCreate()
+    with session_scope() as db:
+        product = repo.create_product(
+            db,
+            passport=payload.passport or {},
+            completeness=0.0,
+            source_documents=[],
+            company_id=user["company_id"],
+        )
+        return _product_detail(product)
+
+
 def _unwrap(node):
     """Return the .value from a wrapped ExtractedField dict, or the node as-is."""
     if isinstance(node, dict) and "value" in node:
