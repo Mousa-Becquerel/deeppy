@@ -3258,33 +3258,56 @@ body{font-family:'Inter',sans-serif;color:#1E293B;font-size:12px;line-height:1.5
   const [selectedBatchId, setSelectedBatchId] = useState(null);
   const [selectedItemId, setSelectedItemId] = useState(null);
 
-  // Demo data showing the Model → Batch → Item hierarchy.
-  // Replaced by real product/batch/item data when persistence is added.
-  const perenneData = {
-    batches: [
-      { id: "b1", lot: "PR-2026-015", site: it?"Stab. Treviso":"Treviso plant", date: "15 Mar 2026", pct: 95, items: [
-        { id: "i1", sn: "#PERENNE-001", dims: "1200×1500mm", weight: "38kg", dest: "Villa Marchetti", date: "16 Mar 2026" },
-        { id: "i2", sn: "#PERENNE-002", dims: "900×2100mm", weight: "42kg", dest: "Villa Marchetti", date: "16 Mar 2026" },
-        { id: "i3", sn: "#PERENNE-003", dims: "1400×1200mm", weight: "35kg", dest: "Villa Marchetti", date: "17 Mar 2026" },
-      ]},
-      { id: "b2", lot: "PR-2026-012", site: it?"Stab. Treviso":"Treviso plant", date: "5 Mar 2026", pct: 100, items: [
-        { id: "i4", sn: "#PERENNE-004", dims: "1500×1500mm", weight: "44kg", dest: "Edificio Verde", date: "6 Mar 2026" },
-        { id: "i5", sn: "#PERENNE-005", dims: "1200×2100mm", weight: "40kg", dest: "Edificio Verde", date: "6 Mar 2026" },
-      ]},
-      { id: "b3", lot: "PR-2026-008", site: it?"Stab. Padova":"Padova plant", date: "20 Feb 2026", pct: 100, items: [
-        { id: "i6", sn: "#PERENNE-006", dims: "800×1200mm", weight: "28kg", dest: "Residenza Sole", date: "21 Feb 2026" },
-        { id: "i7", sn: "#PERENNE-007", dims: "1000×2400mm", weight: "52kg", dest: "Residenza Sole", date: "21 Feb 2026" },
-        { id: "i8", sn: "#PERENNE-008", dims: "600×900mm", weight: "18kg", dest: "Residenza Sole", date: "22 Feb 2026" },
-      ]},
-      { id: "b4", lot: "PR-2026-003", site: it?"Stab. Treviso":"Treviso plant", date: "10 Feb 2026", pct: 100, items: [
-        { id: "i9", sn: "#PERENNE-009", dims: "1200×1500mm", weight: "38kg", dest: "Hotel Adriatico", date: "11 Feb 2026" },
-        { id: "i10", sn: "#PERENNE-010", dims: "1200×1500mm", weight: "38kg", dest: "Hotel Adriatico", date: "11 Feb 2026" },
-      ]},
-      { id: "b5", lot: "PR-2025-098", site: it?"Stab. Padova":"Padova plant", date: "15 Dic 2025", pct: 100, items: [
-        { id: "i11", sn: "#PERENNE-011", dims: "1000×1800mm", weight: "36kg", dest: "Palazzo Rossi", date: "16 Dic 2025" },
-      ]},
-    ]
+  // Client bug: this Item tab used to always render the PERENNE demo data,
+  // even inside real user products — so clicking "Item" from a Model would
+  // show phantom "#PERENNE-001..#PERENNE-011" items that don't belong to
+  // that product. Now we build the batch/item list from product.projectDPPs
+  // (the real API data) and only fall back to demo when there's no product
+  // context at all (e.g. unauthenticated landing preview).
+  const _fmtDate = (iso) => {
+    if (!iso) return "";
+    try { const d = new Date(iso); return isNaN(d) ? "" : d.toLocaleDateString(L?.lang==="it"?"it-IT":"en-US", { day:"numeric", month:"short", year:"numeric" }); }
+    catch { return ""; }
   };
+  const realBatches = (product?.projectDPPs || []).map(pd => ({
+    id: pd.id,
+    lot: pd.batch || "",
+    site: pd.site || "",
+    date: _fmtDate(pd.createdAt) || _fmtDate(pd.productionDate),
+    pct: 100,
+    items: (pd.items || []).map(it => ({
+      id: it.id,
+      sn: it.serial_number || "",
+      dims: it.dimensions || "",
+      weight: it.weight || "",
+      dest: it.destination || "",
+      date: _fmtDate(it.production_date) || _fmtDate(it.created_at),
+    })),
+  }));
+  const _demoBatches = [
+    { id: "b1", lot: "PR-2026-015", site: it?"Stab. Treviso":"Treviso plant", date: "15 Mar 2026", pct: 95, items: [
+      { id: "i1", sn: "#PERENNE-001", dims: "1200×1500mm", weight: "38kg", dest: "Villa Marchetti", date: "16 Mar 2026" },
+      { id: "i2", sn: "#PERENNE-002", dims: "900×2100mm", weight: "42kg", dest: "Villa Marchetti", date: "16 Mar 2026" },
+      { id: "i3", sn: "#PERENNE-003", dims: "1400×1200mm", weight: "35kg", dest: "Villa Marchetti", date: "17 Mar 2026" },
+    ]},
+    { id: "b2", lot: "PR-2026-012", site: it?"Stab. Treviso":"Treviso plant", date: "5 Mar 2026", pct: 100, items: [
+      { id: "i4", sn: "#PERENNE-004", dims: "1500×1500mm", weight: "44kg", dest: "Edificio Verde", date: "6 Mar 2026" },
+      { id: "i5", sn: "#PERENNE-005", dims: "1200×2100mm", weight: "40kg", dest: "Edificio Verde", date: "6 Mar 2026" },
+    ]},
+    { id: "b3", lot: "PR-2026-008", site: it?"Stab. Padova":"Padova plant", date: "20 Feb 2026", pct: 100, items: [
+      { id: "i6", sn: "#PERENNE-006", dims: "800×1200mm", weight: "28kg", dest: "Residenza Sole", date: "21 Feb 2026" },
+      { id: "i7", sn: "#PERENNE-007", dims: "1000×2400mm", weight: "52kg", dest: "Residenza Sole", date: "21 Feb 2026" },
+      { id: "i8", sn: "#PERENNE-008", dims: "600×900mm", weight: "18kg", dest: "Residenza Sole", date: "22 Feb 2026" },
+    ]},
+    { id: "b4", lot: "PR-2026-003", site: it?"Stab. Treviso":"Treviso plant", date: "10 Feb 2026", pct: 100, items: [
+      { id: "i9", sn: "#PERENNE-009", dims: "1200×1500mm", weight: "38kg", dest: "Hotel Adriatico", date: "11 Feb 2026" },
+      { id: "i10", sn: "#PERENNE-010", dims: "1200×1500mm", weight: "38kg", dest: "Hotel Adriatico", date: "11 Feb 2026" },
+    ]},
+    { id: "b5", lot: "PR-2025-098", site: it?"Stab. Padova":"Padova plant", date: "15 Dic 2025", pct: 100, items: [
+      { id: "i11", sn: "#PERENNE-011", dims: "1000×1800mm", weight: "36kg", dest: "Palazzo Rossi", date: "16 Dic 2025" },
+    ]},
+  ];
+  const perenneData = { batches: product?.id ? realBatches : _demoBatches };
   const allItems = perenneData.batches.flatMap(b => b.items.map(i => ({ ...i, batchLot: b.lot, batchId: b.id })));
   const currentBatch = perenneData.batches.find(b => b.id === selectedBatchId);
   const currentItem = allItems.find(i => i.id === selectedItemId);
@@ -5157,6 +5180,18 @@ export default function DeePPy() {
   const [activeProductId, setActiveProductId] = useState(null);
 
   const activeProduct = products.find(p => p.id === activeProductId) || null;
+
+  // Client bug: navigating to the onboarding / manual-entry flow while a
+  // previously-viewed DPP was still the active product caused the fresh
+  // AppEditView to render with THAT product's data — and any typing on top
+  // silently overwrote the wrong DPP. Clearing activeProductId on entry to
+  // the onboarding routes guarantees a clean slate; extraction (or the
+  // "Skip and fill manually" first-Save) will populate it with the new one.
+  useEffect(() => {
+    if (page === "onboard" || page === "onboard-batch" || page === "onboard-item") {
+      setActiveProductId(null);
+    }
+  }, [page]);
 
   // Map an API product (summary or detail) → the shape the UI components expect.
   const apiToProduct = (api) => ({
