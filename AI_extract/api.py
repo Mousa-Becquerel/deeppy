@@ -551,6 +551,46 @@ async def create_blank_product(body: Optional[ProductCreate] = None,
         return _product_detail(product)
 
 
+@app.post("/api/products/{product_id}/duplicate", status_code=201)
+async def duplicate_product(product_id: str,
+                            user: dict = Depends(require_role("admin", "editor"))):
+    """Deep-copy a product's passport into a new draft. Used by the
+    dashboard "Duplicate" action so users can start from an existing DPP
+    instead of re-entering everything. Documents / batches / items / version
+    history are NOT copied — the new product starts clean; only the passport
+    data (specs, composition, compliance, etc.) carries over. The UID field
+    in the copy is cleared so the extractor / user picks a fresh one."""
+    with session_scope() as db:
+        src = _owned_product(db, product_id, user["company_id"])
+        if not src:
+            raise HTTPException(404, "Product not found")
+        # Deep copy so mutating one doesn't touch the other.
+        import copy as _copy
+        new_passport = _copy.deepcopy(src.passport or {})
+        # Clear the copy's UID so it doesn't collide visually with the source.
+        try:
+            uid = ((new_passport.get("overview") or {}).get("product_info") or {}).get("uid")
+            if isinstance(uid, dict) and "value" in uid:
+                uid["value"] = None
+        except Exception:
+            pass
+        # Rename with "(copy)" suffix so the dashboard shows the difference.
+        try:
+            pn = ((new_passport.get("overview") or {}).get("product_info") or {}).get("product_name")
+            if isinstance(pn, dict) and isinstance(pn.get("value"), str):
+                pn["value"] = f"{pn['value']} (copy)"
+        except Exception:
+            pass
+        product = repo.create_product(
+            db,
+            passport=new_passport,
+            completeness=0.0,     # recomputed by _product_detail on next GET
+            source_documents=[],  # start clean — no borrowed doc references
+            company_id=user["company_id"],
+        )
+        return _product_detail(product)
+
+
 def _unwrap(node):
     """Return the .value from a wrapped ExtractedField dict, or the node as-is."""
     if isinstance(node, dict) and "value" in node:
@@ -559,12 +599,17 @@ def _unwrap(node):
 
 
 def _catalog_kpis(passport: dict) -> dict:
-    """Pull the 3 catalog-card KPIs from a passport. Returns None per field
+    """Pull the catalog-card KPIs from a passport. Returns None per field
     when the data isn't there — the UI shows '—' for those.
 
-      • gwp_total       — sum of lifecycle.stages[].gwp_total (typical EPD)
-      • recycled        — performance.values row matching /recycl|riciclat/i
-      • energy_class    — performance.energy_class (when present)
+      • gwp_total   — sum of lifecycle.stages[].gwp_total (typical EPD)
+      • recycled    — performance.values row matching /recycl(?!abil).*content|riciclato/
+      • recyclable  — performance.values row matching /recyclab|circular|riciclabil/i
+
+    Bucket 6: replaces the earlier energy_class KPI (never populated by any
+    EPD we've seen) with recyclable, which shows up as "Recyclability" or
+    "Circularity index" on real DoPs / EPDs. Front-end catalog card renders
+    three columns: GWP / Recycled / Recyclable.
     """
     pp = passport or {}
 
@@ -584,6 +629,32 @@ def _catalog_kpis(passport: dict) -> dict:
         if any_value:
             gwp_total = round(running, 2)
 
+    def _find_perf_pct(patterns: tuple[str, ...]) -> str | None:
+        """First performance row whose property_name matches any substring in
+        `patterns`, coerced to a "N%" string. None when no match."""
+        perf = pp.get("performance") or {}
+        values = perf.get("values") or []
+        if not isinstance(values, list):
+            return None
+        for row in values:
+            if not isinstance(row, dict):
+                continue
+            name = _unwrap(row.get("property_name")) or ""
+            if not isinstance(name, str):
+                continue
+            low = name.lower()
+            if any(pat in low for pat in patterns):
+                raw = _unwrap(row.get("value"))
+                if raw in (None, ""):
+                    continue
+                s = str(raw).strip()
+                if not s.endswith("%"):
+                    s = f"{s}%"
+                return s
+        return None
+
+    # "recycled content" first — exclude "recyclab*" to avoid grabbing the
+    # recyclability row into the recycled column.
     recycled = None
     perf = pp.get("performance") or {}
     values = perf.get("values") or []
@@ -595,7 +666,7 @@ def _catalog_kpis(passport: dict) -> dict:
             if not isinstance(name, str):
                 continue
             low = name.lower()
-            if "recycl" in low or "riciclat" in low:
+            if ("recycl" in low or "riciclat" in low) and "recyclab" not in low and "riciclabil" not in low:
                 raw = _unwrap(row.get("value"))
                 if raw not in (None, ""):
                     s = str(raw).strip()
@@ -604,14 +675,12 @@ def _catalog_kpis(passport: dict) -> dict:
                     recycled = s
                     break
 
-    energy_class = _unwrap(perf.get("energy_class"))
-    if isinstance(energy_class, str):
-        energy_class = energy_class.strip() or None
+    recyclable = _find_perf_pct(("recyclab", "riciclabil", "circularity", "circolarita", "circolarità"))
 
     return {
         "gwp_total": gwp_total,
         "recycled": recycled,
-        "energy_class": energy_class,
+        "recyclable": recyclable,
     }
 
 

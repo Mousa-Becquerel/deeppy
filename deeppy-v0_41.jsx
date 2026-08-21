@@ -116,6 +116,7 @@ const ic = {
   alert: <><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" /><path d="M12 9v4M12 17h.01" /></>,
   x: "M18 6L6 18M6 6l12 12",
   trash: "M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2M10 11v6M14 11v6",
+  copy: "M20 9h-9a2 2 0 00-2 2v9a2 2 0 002 2h9a2 2 0 002-2v-9a2 2 0 00-2-2zM5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1",
   search: <><circle cx="11" cy="11" r="8" /><path d="M21 21l-4.35-4.35" /></>,
   download: "M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3",
   share: <><circle cx="18" cy="5" r="3" /><circle cx="6" cy="12" r="3" /><circle cx="18" cy="19" r="3" /><path d="M8.59 13.51l6.83 3.98M15.41 6.51l-6.82 3.98" /></>,
@@ -500,6 +501,49 @@ function SupplyMap({ dppData }) {
 // fetches on mount. Category chips are derived from the actual data; we still
 // keep "all" as a special key meaning no filter.
 const CATALOG_ALL_KEY = "all";
+
+// Bucket 6: full descriptive names for the CPR family codes shown as
+// 3-letter chips in the catalog filter row. Used as the tooltip so a
+// human hovering can actually read what "PTA" or "CMG" means. Codes
+// mirror the ProductFamily enum on the backend.
+const FAMILY_LABELS = {
+  MAS: "Masonry units",
+  CEM: "Cement, building limes, hydraulic binders",
+  CMG: "Concrete, mortars, grouts",
+  TIP: "Thermal insulation products",
+  PTA: "Pipes, tanks and ancillaries",
+  DWS: "Doors, windows, shutters",
+  GLA: "Flat glass, glass blocks, IGUs",
+  WBP: "Wood-based panels",
+  GYP: "Gypsum products",
+  MEM: "Membranes, waterproofing sheets",
+  ADH: "Adhesives, construction glues",
+  SEA: "Sealants for joints",
+  FLR: "Floorings and screeds",
+  ROF: "Roof coverings",
+  MET: "Metallic construction products",
+  WWD: "Structural wood products",
+  BIT: "Bituminous products",
+  PLA: "Plastics for construction",
+  FIB: "Fibres for reinforcement",
+  ELE: "Electrical equipment",
+  HVA: "HVAC / ventilation",
+  SAN: "Sanitary appliances",
+  PLT: "Plumbing fittings",
+  FIR: "Fire safety products",
+  SEC: "Security products",
+  ACC: "Acoustic components",
+  LIF: "Lifts, escalators",
+  MOB: "Furniture / fittings",
+  DEC: "Decorative materials",
+  PAV: "Pavements",
+  BAR: "Barriers, railings",
+  CIV: "Civil engineering works",
+  ROD: "Road products",
+  RAI: "Railway products",
+  MAR: "Marine products",
+  AGG: "Aggregates",
+};
 
 function Sidebar({ activePage, onNavigate, L, onLogout }) {
   const t = (it, en) => L?.lang === "it" ? it : en;
@@ -968,15 +1012,24 @@ function ComponentiTab({ editMode, onNavigate, L, dppData, blankShell = false })
     { id: "m3", linked: false, genericName: "Other components", detail: "3% — 0.07 kg/m² — Origine mista", source: "EPD", conf: "high" },
   ];
 
-  // Bucket 5 item 8: in the "Skip and fill manually" flow (blank shell) we
-  // must NOT fall back to the XPS demo components — start empty instead.
+  // Bucket 6 client bug: for a REAL product with no composition (whether
+  // extraction found none or the user hasn't added any yet), the tab used
+  // to fall back to the XPS demo components and those phantom entries
+  // (Extruded Polystyrene / Flame retardant) reappeared every mount even
+  // after the user "edited, deleted, and resaved". Now: any real passport
+  // context (dppData present, even if empty) → empty list. The XPS demo is
+  // reserved for the truly-no-passport case (landing preview, demo mode).
+  const hasRealPassport = !!dppData?.passport;
   const initialComponents = _pp?.composition?.materials?.length
     ? buildFromPassport()
-    : (blankShell ? [] : demoComponents);
+    : (blankShell || hasRealPassport ? [] : demoComponents);
   const [components, setComponents] = useState(initialComponents);
   // Re-sync when real passport data arrives (e.g. after detail load).
+  // Also reset to [] when the passport is now present but has no materials —
+  // otherwise stale local state from a previous mount would linger.
   useEffect(() => {
     if (_pp?.composition?.materials?.length) setComponents(buildFromPassport());
+    else if (hasRealPassport && !blankShell) setComponents([]);
   }, [dppData]);
   const [searchFor, setSearchFor] = useState(null);
   const [catSearch, setCatSearch] = useState("");
@@ -1300,15 +1353,18 @@ function PackagingSection({ L, editMode, dppData }) {
             <div style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr 1fr 1fr", gap: 8, marginBottom: 8 }}>
               <div>
                 <div style={{ fontSize: 10, fontWeight: 700, color: T.textSec, marginBottom: 3 }}>{it ? "Materiale *" : "Material *"}</div>
-                <input value={draft.material} onChange={e => setDraft(d => ({ ...d, material: e.target.value }))} placeholder={it ? "Es. Film HDPE" : "e.g. HDPE film"} style={{ width: "100%", padding: "6px 9px", borderRadius: 6, border: `1px solid ${T.border}`, fontSize: 11, fontFamily: font, outline: "none" }} />
+                {/* Bucket 6 client bug: example placeholders read as
+                    pre-filled values to non-technical users, who then
+                    complained the form wasn't blank. Placeholders removed. */}
+                <input value={draft.material} onChange={e => setDraft(d => ({ ...d, material: e.target.value }))} style={{ width: "100%", padding: "6px 9px", borderRadius: 6, border: `1px solid ${T.border}`, fontSize: 11, fontFamily: font, outline: "none" }} />
               </div>
               <div>
                 <div style={{ fontSize: 10, fontWeight: 700, color: T.textSec, marginBottom: 3 }}>{it ? "Peso/unità (kg)" : "Weight / unit (kg)"}</div>
-                <input type="number" step="0.001" value={draft.weight_per_unit_kg} onChange={e => setDraft(d => ({ ...d, weight_per_unit_kg: e.target.value }))} placeholder="0.05" style={{ width: "100%", padding: "6px 9px", borderRadius: 6, border: `1px solid ${T.border}`, fontSize: 11, fontFamily: font, outline: "none" }} />
+                <input type="number" step="0.001" value={draft.weight_per_unit_kg} onChange={e => setDraft(d => ({ ...d, weight_per_unit_kg: e.target.value }))} style={{ width: "100%", padding: "6px 9px", borderRadius: 6, border: `1px solid ${T.border}`, fontSize: 11, fontFamily: font, outline: "none" }} />
               </div>
               <div>
                 <div style={{ fontSize: 10, fontWeight: 700, color: T.textSec, marginBottom: 3 }}>{it ? "Peso/pallet (kg)" : "Weight / pallet (kg)"}</div>
-                <input type="number" step="0.01" value={draft.weight_per_pallet_kg} onChange={e => setDraft(d => ({ ...d, weight_per_pallet_kg: e.target.value }))} placeholder="24" style={{ width: "100%", padding: "6px 9px", borderRadius: 6, border: `1px solid ${T.border}`, fontSize: 11, fontFamily: font, outline: "none" }} />
+                <input type="number" step="0.01" value={draft.weight_per_pallet_kg} onChange={e => setDraft(d => ({ ...d, weight_per_pallet_kg: e.target.value }))} style={{ width: "100%", padding: "6px 9px", borderRadius: 6, border: `1px solid ${T.border}`, fontSize: 11, fontFamily: font, outline: "none" }} />
               </div>
               <div>
                 <div style={{ fontSize: 10, fontWeight: 700, color: T.textSec, marginBottom: 3 }}>{it ? "Riciclabilità" : "Recyclability"}</div>
@@ -1322,7 +1378,7 @@ function PackagingSection({ L, editMode, dppData }) {
             </div>
             <div style={{ marginBottom: 8 }}>
               <div style={{ fontSize: 10, fontWeight: 700, color: T.textSec, marginBottom: 3 }}>{it ? "Note" : "Notes"}</div>
-              <input value={draft.notes} onChange={e => setDraft(d => ({ ...d, notes: e.target.value }))} placeholder={it ? "Es. Rientra in un circuito di reso" : "e.g. Included in a return scheme"} style={{ width: "100%", padding: "6px 9px", borderRadius: 6, border: `1px solid ${T.border}`, fontSize: 11, fontFamily: font, outline: "none" }} />
+              <input value={draft.notes} onChange={e => setDraft(d => ({ ...d, notes: e.target.value }))} style={{ width: "100%", padding: "6px 9px", borderRadius: 6, border: `1px solid ${T.border}`, fontSize: 11, fontFamily: font, outline: "none" }} />
             </div>
             <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
               <button onClick={() => { setAdding(false); setDraft({ material: "", weight_per_unit_kg: "", weight_per_pallet_kg: "", recyclability: "", notes: "" }); }} style={{ padding: "5px 12px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.bg, cursor: "pointer", fontFamily: font, fontSize: 11, fontWeight: 600, color: T.textDark }}>{it ? "Annulla" : "Cancel"}</button>
@@ -2608,19 +2664,25 @@ function CatalogView({ onNavigate, L }) {
               const isAll = ck === CATALOG_ALL_KEY;
               const label = isAll ? _("all") : ck;
               const active = filter === ck;
+              // Bucket 6: tooltip carries the full CPR family name so the
+              // 3-letter code chips are actually readable to a human hovering.
+              const tip = isAll ? (it?"Tutte le famiglie":"All product families") : (FAMILY_LABELS[ck] || ck);
               return (
-                <button key={ck} onClick={() => setFilter(ck)} style={{ padding: "6px 14px", borderRadius: 6, fontSize: 12, fontWeight: active ? 700 : 500, cursor: "pointer", fontFamily: font, border: `1px solid ${active ? T.accent : T.border}`, background: active ? T.accentSoft : T.bg, color: active ? T.accentDark : T.textSec }}>{label}</button>
+                <button key={ck} onClick={() => setFilter(ck)} title={tip} style={{ padding: "6px 14px", borderRadius: 6, fontSize: 12, fontWeight: active ? 700 : 500, cursor: "pointer", fontFamily: font, border: `1px solid ${active ? T.accent : T.border}`, background: active ? T.accentSoft : T.bg, color: active ? T.accentDark : T.textSec }}>{label}</button>
               );
             })}
           </div>
 
-          {/* Product grid - cards are clickable, no Esplora button */}
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 14 }}>
+          {/* Bucket 6: 3-column card grid + Recyclable KPI beside GWP+Recycled. */}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 14 }}>
             {filtered.map((p) => {
               const k = p.kpis || {};
               const gwp = k.gwp_total != null ? `${k.gwp_total} kgCO\u2082e/m\u00b2` : "\u2014";
               const recycled = k.recycled || "\u2014";
-              // Bucket 5 item 1: energy KPI dropped \u2014 no reliable source in EPDs.
+              // Bucket 6: added Recyclable (from circularity / recyclability
+              // rows) as the third catalog KPI, replacing the always-missing
+              // energy_class field.
+              const recyclable = k.recyclable || "\u2014";
               const mfr = p.manufacturer || p.company_name || "\u2014";
               return (
                 <button key={p.id} onClick={() => openCard(p)} style={{ borderRadius: 12, border: `1px solid ${T.border}`, background: T.bg, overflow: "hidden", cursor: "pointer", fontFamily: font, textAlign: "left", padding: 0, display: "block", width: "100%", transition: "border-color 0.15s, box-shadow 0.15s" }} onMouseEnter={e=>{e.currentTarget.style.borderColor=T.accent;e.currentTarget.style.boxShadow=`0 0 0 1px ${T.accent}30`}} onMouseLeave={e=>{e.currentTarget.style.borderColor=T.border;e.currentTarget.style.boxShadow="none"}}>
@@ -2638,8 +2700,8 @@ function CatalogView({ onNavigate, L }) {
                     </div>
                   </div>
                   <div style={{ padding: "0 18px 14px" }}>
-                    {[["GWP Total", gwp], [_("recycled"), recycled]].map(([l, v], j) => (
-                      <div key={j} style={{ display: "flex", justifyContent: "space-between", padding: "4px 0", borderBottom: j < 1 ? `1px solid ${T.borderLight}` : "none" }}>
+                    {[["GWP Total", gwp], [_("recycled"), recycled], [it?"Riciclabile":"Recyclable", recyclable]].map(([l, v], j, arr) => (
+                      <div key={j} style={{ display: "flex", justifyContent: "space-between", padding: "4px 0", borderBottom: j < arr.length - 1 ? `1px solid ${T.borderLight}` : "none" }}>
                         <span style={{ fontSize: 12, color: T.textSec }}>{l}</span>
                         <span style={{ fontSize: 12, fontWeight: 700, color: T.textDark }}>{v}</span>
                       </div>
@@ -3003,10 +3065,22 @@ function AppView({ onNavigate, L, product, onAddProjectDPP, onPublish, onReloadP
     if (otherPct > 0.5) top.push({ p: Math.round(otherPct), c: T.border, name: _("insulation") && "Other" });
     return top;
   })() : null;
-  const generatePDF = () => {
-    const qrUrl = `https://deeppy.eu/dpp/${puid}`;
-    // Generate QR code as SVG using simple QR pattern (placeholder - real impl uses qrcode lib)
-    const qrSvg = `<svg viewBox="0 0 100 100" width="120" height="120" xmlns="http://www.w3.org/2000/svg"><rect width="100" height="100" fill="white" rx="4"/><rect x="5" y="5" width="25" height="25" rx="2" fill="#0F1729"/><rect x="8" y="8" width="19" height="19" rx="1" fill="white"/><rect x="11" y="11" width="13" height="13" rx="1" fill="#0F1729"/><rect x="70" y="5" width="25" height="25" rx="2" fill="#0F1729"/><rect x="73" y="8" width="19" height="19" rx="1" fill="white"/><rect x="76" y="11" width="13" height="13" rx="1" fill="#0F1729"/><rect x="5" y="70" width="25" height="25" rx="2" fill="#0F1729"/><rect x="8" y="73" width="19" height="19" rx="1" fill="white"/><rect x="11" y="76" width="13" height="13" rx="1" fill="#0F1729"/><rect x="35" y="5" width="5" height="5" fill="#0F1729"/><rect x="45" y="5" width="5" height="5" fill="#0F1729"/><rect x="55" y="5" width="5" height="5" fill="#0F1729"/><rect x="35" y="15" width="5" height="5" fill="#0F1729"/><rect x="50" y="15" width="5" height="5" fill="#0F1729"/><rect x="60" y="15" width="5" height="5" fill="#0F1729"/><rect x="35" y="25" width="5" height="5" fill="#0F1729"/><rect x="45" y="25" width="5" height="5" fill="#0F1729"/><rect x="55" y="25" width="5" height="5" fill="#0F1729"/><rect x="5" y="35" width="5" height="5" fill="#0F1729"/><rect x="15" y="35" width="5" height="5" fill="#0F1729"/><rect x="25" y="35" width="5" height="5" fill="#0F1729"/><rect x="40" y="40" width="20" height="20" rx="4" fill="#34D399"/><text x="50" y="54" text-anchor="middle" font-size="10" font-weight="800" fill="#0F1729" font-family="Inter,sans-serif">DPP</text><rect x="70" y="35" width="5" height="5" fill="#0F1729"/><rect x="80" y="35" width="5" height="5" fill="#0F1729"/><rect x="90" y="35" width="5" height="5" fill="#0F1729"/><rect x="5" y="45" width="5" height="5" fill="#0F1729"/><rect x="20" y="45" width="5" height="5" fill="#0F1729"/><rect x="70" y="50" width="5" height="5" fill="#0F1729"/><rect x="85" y="50" width="5" height="5" fill="#0F1729"/><rect x="5" y="55" width="5" height="5" fill="#0F1729"/><rect x="15" y="55" width="5" height="5" fill="#0F1729"/><rect x="25" y="55" width="5" height="5" fill="#0F1729"/><rect x="70" y="65" width="5" height="5" fill="#0F1729"/><rect x="80" y="65" width="5" height="5" fill="#0F1729"/><rect x="90" y="65" width="5" height="5" fill="#0F1729"/><rect x="35" y="70" width="5" height="5" fill="#0F1729"/><rect x="45" y="75" width="5" height="5" fill="#0F1729"/><rect x="55" y="70" width="5" height="5" fill="#0F1729"/><rect x="70" y="75" width="5" height="5" fill="#0F1729"/><rect x="80" y="80" width="5" height="5" fill="#0F1729"/><rect x="90" y="75" width="5" height="5" fill="#0F1729"/><rect x="35" y="85" width="5" height="5" fill="#0F1729"/><rect x="50" y="90" width="5" height="5" fill="#0F1729"/><rect x="70" y="90" width="5" height="5" fill="#0F1729"/><rect x="85" y="85" width="5" height="5" fill="#0F1729"/></svg>`;
+  const generatePDF = async () => {
+    // Bucket 6 client bug: the PDF export used to embed a decorative SVG
+    // that looked like a QR code but wasn't scannable, and pointed at
+    // https://deeppy.eu/dpp/{puid} — a route that doesn't exist. Now:
+    // (1) generate a real QR via the same qrcode lib the modal uses, and
+    // (2) target the deep-link URL that the catalog actually resolves.
+    const qrUrl = product?.id ? `https://deeppy.eu/?dpp=${product.id}` : `https://deeppy.eu/`;
+    let qrDataUrlLocal = "";
+    try {
+      qrDataUrlLocal = await QRCode.toDataURL(qrUrl, { margin: 1, width: 512, errorCorrectionLevel: "M" });
+    } catch (err) {
+      console.error("PDF QR generation failed:", err);
+    }
+    const qrSvg = qrDataUrlLocal
+      ? `<img src="${qrDataUrlLocal}" width="120" height="120" alt="QR" style="border-radius:4px;image-rendering:pixelated" />`
+      : `<div style="width:120px;height:120px;border:1px dashed #cbd5e1;border-radius:4px;display:flex;align-items:center;justify-content:center;color:#94a3b8;font-size:10px">QR unavailable</div>`;
 
     const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>DPP Summary</title>
 <style>
@@ -3876,10 +3950,10 @@ body{font-family:'Inter',sans-serif;color:#1E293B;font-size:12px;line-height:1.5
 
 
 // ─── DASHBOARD ────────────────────────────────────────────
-function DashboardView({ onNavigate, L, products = [], onSelectProduct, onDelete }) {
+function DashboardView({ onNavigate, L, products = [], onSelectProduct, onDelete, onDuplicate }) {
   const it = L?.lang === "it";
-  const [expandedProd, setExpandedProd] = useState(null);
-  const [specSearch, setSpecSearch] = useState("");
+  // Bucket 6: nested BATCHES/ITEMS chrome removed from Model cards per client
+  // request. The old expandedProd/specSearch state that drove it is gone too.
 
   // Map real products to dashboard cards, with demo fallback when empty
   const demoProds = [
@@ -3903,28 +3977,23 @@ function DashboardView({ onNavigate, L, products = [], onSelectProduct, onDelete
     date: new Date(p.createdAt).toLocaleDateString(it ? "it-IT" : "en-US", { day: "numeric", month: "short", year: "numeric" }),
     catIcon: "box",
     prodType: "industrial",
-    specifics: (p.projectDPPs || []).map(proj => ({
-      id: proj.id,
-      ref: [proj.batch, proj.ref].filter(Boolean).join(" \u2014 "),
-      site: proj.site || "",
-      date: proj.createdAt ? new Date(proj.createdAt).toLocaleDateString(it ? "it-IT" : "en-US", { day: "numeric", month: "short", year: "numeric" }) : "",
-      pct: 100,
-      custom: [proj.dims, proj.weight].filter(Boolean).join(", "),
-    })),
+    imageUrl: p.imageUrl || null,   // Bucket 6: real product photo on the card
   }));
 
   const prods = realProds.length > 0 ? realProds : demoProds;
-  // Batch count = sum of specifics for industrial products; Item count = bespoke product specifics
-  const totalBatches = prods.filter(p => p.prodType !== "bespoke").reduce((a, p) => a + p.specifics.length, 0);
-  const totalItems = prods.filter(p => p.prodType === "bespoke").reduce((a, p) => a + p.specifics.length, 0);
+  // Bucket 6: batch/item aggregate counts derived from the real product list.
+  // Demo mode falls back to counting `specifics` when present (demoProds
+  // still declares that shape).
+  const totalBatches = products.reduce((a, p) => a + (p.projectDPPs?.length || 0), 0);
+  const totalItems = products.reduce((a, p) => a + (p.projectDPPs || []).reduce((b, pd) => b + (pd.items?.length || 0), 0), 0);
   const publishedCount = prods.filter(p => p.status === "published").length;
-  const avgPct = prods.length > 0 ? Math.round(prods.reduce((a, p) => a + p.pct, 0) / prods.length) : 0;
+  // Bucket 6: "Avg. completeness" KPI removed per client — it wasn't meaningful
+  // across a mixed portfolio and clutters the header. Grid drops from 5 → 4.
   const stats = [
     { label: it ? "DPP Model" : "DPP Models", value: String(prods.length), ic: ic.grid },
     { label: it ? "DPP Batch" : "Batches", value: String(totalBatches), ic: ic.layers },
     { label: it ? "DPP Item" : "Items", value: String(totalItems), ic: ic.box },
     { label: it ? "Pubblicati" : "Published", value: String(publishedCount), ic: ic.check },
-    { label: it ? "Completezza media" : "Avg. completeness", value: avgPct + "%", ic: ic.chart },
   ];
   return (
     <div style={{ fontFamily: font, minHeight: "100vh", display: "flex" }}>
@@ -3934,13 +4003,11 @@ function DashboardView({ onNavigate, L, products = [], onSelectProduct, onDelete
           <div><h1 style={{ fontSize: 24, fontWeight: 800, color: T.navy, marginBottom: 2 }}>Dashboard</h1><p style={{ fontSize: 13, color: T.textSec }}>{it ? "I tuoi passaporti digitali" : "Your digital passports"}</p></div>
           <Btn primary onClick={() => onNavigate("onboard")} small style={{ fontSize: 12, padding: "8px 18px" }}><I d={ic.plus} size={13} color={T.navy} /> {it ? "Nuovo passaporto" : "New passport"}</Btn>
         </div>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 12, marginBottom: 28 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, marginBottom: 28 }}>
           {stats.map((s, i) => (<div key={i} style={{ padding: "14px 16px", borderRadius: 10, background: T.bg, border: `1px solid ${T.border}` }}><div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}><I d={s.ic} size={14} color={T.accent} /><span style={{ fontSize: 10, color: T.textSec, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.04em" }}>{s.label}</span></div><div style={{ fontSize: 26, fontWeight: 800, color: T.navy }}>{s.value}</div></div>))}
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 14 }}>
           {prods.map((p, i) => {
-            const isExp = expandedProd === i;
-            const filtered = p.specifics.filter(s => !specSearch || s.ref.toLowerCase().includes(specSearch.toLowerCase()));
             const isReal = !p.id.startsWith("demo-");
             const doDelete = (e) => {
               e.stopPropagation();
@@ -3948,47 +4015,49 @@ function DashboardView({ onNavigate, L, products = [], onSelectProduct, onDelete
               const msg = it ? `Eliminare definitivamente "${p.name}"? L'azione non è reversibile.` : `Permanently delete "${p.name}"? This cannot be undone.`;
               if (window.confirm(msg)) onDelete(p.id);
             };
-            return (<div key={i} style={{ position: "relative", borderRadius: 12, background: T.bg, border: `1px solid ${isExp ? T.accent+"50" : T.border}`, fontFamily: font, textAlign: "left", transition: "border-color 0.15s" }}>
-              {isReal && onDelete && (
-                <button onClick={doDelete} title={it?"Elimina passaporto":"Delete passport"} style={{ position: "absolute", top: 12, right: 12, width: 26, height: 26, borderRadius: 6, background: T.bg, border: `1px solid ${T.borderLight}`, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 2, color: T.textSec, fontFamily: font }} onMouseEnter={e=>{e.currentTarget.style.color=T.red; e.currentTarget.style.borderColor=T.red+"60";}} onMouseLeave={e=>{e.currentTarget.style.color=T.textSec; e.currentTarget.style.borderColor=T.borderLight;}}>
-                  <I d={ic.trash || ic.x} size={13} color="currentColor" />
-                </button>
+            const doDuplicate = async (e) => {
+              e.stopPropagation();
+              if (!onDuplicate || !isReal) return;
+              const newId = await onDuplicate(p.id);
+              if (newId && onSelectProduct) onSelectProduct(newId, "app-edit");
+            };
+            return (<div key={i} style={{ position: "relative", borderRadius: 12, background: T.bg, border: `1px solid ${T.border}`, fontFamily: font, textAlign: "left", transition: "border-color 0.15s" }}>
+              {/* Bucket 6 dashboard: Duplicate + Delete side by side.
+                  Progress bar removed (percentage retained), card image
+                  replaces the icon tile when uploaded. Expand/specifics
+                  block below has been removed per client request. */}
+              {isReal && (onDelete || onDuplicate) && (
+                <div style={{ position: "absolute", top: 12, right: 12, display: "flex", gap: 4, zIndex: 2 }}>
+                  {onDuplicate && (
+                    <button onClick={doDuplicate} title={it?"Duplica passaporto":"Duplicate passport"} style={{ width: 26, height: 26, borderRadius: 6, background: T.bg, border: `1px solid ${T.borderLight}`, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: T.textSec, fontFamily: font }} onMouseEnter={e=>{e.currentTarget.style.color=T.accentDark; e.currentTarget.style.borderColor=T.accent;}} onMouseLeave={e=>{e.currentTarget.style.color=T.textSec; e.currentTarget.style.borderColor=T.borderLight;}}>
+                      <I d={ic.copy || ic.layers} size={13} color="currentColor" />
+                    </button>
+                  )}
+                  {onDelete && (
+                    <button onClick={doDelete} title={it?"Elimina passaporto":"Delete passport"} style={{ width: 26, height: 26, borderRadius: 6, background: T.bg, border: `1px solid ${T.borderLight}`, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: T.textSec, fontFamily: font }} onMouseEnter={e=>{e.currentTarget.style.color=T.red; e.currentTarget.style.borderColor=T.red+"60";}} onMouseLeave={e=>{e.currentTarget.style.color=T.textSec; e.currentTarget.style.borderColor=T.borderLight;}}>
+                      <I d={ic.trash || ic.x} size={13} color="currentColor" />
+                    </button>
+                  )}
+                </div>
               )}
-              <button onClick={() => { if (onSelectProduct && isReal) onSelectProduct(p.id, p.status === "published" ? "app" : "app-edit"); else onNavigate(p.status === "published" ? "app" : "app-edit"); }} style={{ padding: "20px 20px 12px", width: "100%", background: "none", border: "none", cursor: "pointer", fontFamily: font, textAlign: "left" }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}><div style={{ width: 40, height: 40, borderRadius: 10, background: T.navy, display: "flex", alignItems: "center", justifyContent: "center" }}><I d={ic[p.catIcon] || ic.box} size={18} color={T.accent} /></div><div style={{ flex: 1 }}><div style={{ fontSize: 14, fontWeight: 700, color: T.navy }}>{p.name}</div><div style={{ fontSize: 11, color: T.textSec }}>{p.mfr}</div></div></div>
-                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}><div style={{ flex: 1, height: 6, borderRadius: 3, background: T.borderLight, overflow: "hidden" }}><div style={{ width: `${p.pct}%`, height: "100%", borderRadius: 3, background: p.pct >= 85 ? T.accent : p.pct >= 70 ? T.amber : T.red }} /></div><span style={{ fontSize: 13, fontWeight: 700, color: T.navy }}>{p.pct}%</span></div>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}><Badge color={p.status === "published" ? T.accent : T.amber} bg={p.status === "published" ? T.accentSoft : T.amberSoft}>{p.status === "published" ? (it ? "Pubblicato" : "Published") : (it ? "Bozza" : "Draft")}</Badge><span style={{ fontSize: 10, color: T.textSec }}>{p.date}</span></div>
-              </button>
-              {/* Expand toggle for specifics */}
-              <button onClick={(e) => { e.stopPropagation(); setExpandedProd(isExp ? null : i); setSpecSearch(""); }} style={{ width: "100%", padding: "10px 20px", background: isExp ? T.accentSoft+"30" : "none", border: "none", borderTop: `1px solid ${T.borderLight}`, cursor: "pointer", fontFamily: font, display: "flex", alignItems: "center", justifyContent: "space-between", transition: "background 0.15s" }}>
-                <span style={{ fontSize: 12, fontWeight: 600, color: p.specifics.length > 0 ? T.navy : T.textSec, display: "flex", alignItems: "center", gap: 6 }}><I d={ic.clip} size={12} color={p.specifics.length > 0 ? T.accent : T.textSec} />{p.specifics.length} {p.prodType==="bespoke" ? "Batch/Item" : "Batch"}</span>
-                <I d={isExp ? ic.chevDown : ic.chevRight} size={14} color={T.textSec} />
-              </button>
-              {isExp && (<div style={{ padding: "10px 14px 14px", borderTop: `1px solid ${T.borderLight}` }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8 }}>
-                  <div style={{ flex: 1, display: "flex", alignItems: "center", gap: 6, padding: "7px 10px", borderRadius: 7, border: `1px solid ${T.border}`, background: T.bg }}>
-                    <I d={ic.search} size={12} color={T.textSec} />
-                    <input value={specSearch} onChange={e => setSpecSearch(e.target.value)} placeholder={it?"Cerca lotto, commessa...":"Search batch, order..."} style={{ flex: 1, border: "none", outline: "none", fontSize: 11, background: "transparent", fontFamily: font }} />
+              <button onClick={() => { if (onSelectProduct && isReal) onSelectProduct(p.id, p.status === "published" ? "app" : "app-edit"); else onNavigate(p.status === "published" ? "app" : "app-edit"); }} style={{ padding: "20px 20px 16px", width: "100%", background: "none", border: "none", cursor: "pointer", fontFamily: font, textAlign: "left" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
+                  {p.imageUrl
+                    ? <img src={p.imageUrl} alt="" style={{ width: 40, height: 40, borderRadius: 10, objectFit: "cover", background: T.bgSoft, border: `1px solid ${T.borderLight}`, flexShrink: 0 }} onError={e=>{e.currentTarget.style.display="none";}} />
+                    : <div style={{ width: 40, height: 40, borderRadius: 10, background: T.navy, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}><I d={ic[p.catIcon] || ic.box} size={18} color={T.accent} /></div>}
+                  <div style={{ flex: 1, minWidth: 0, paddingRight: 60 }}>
+                    <div style={{ fontSize: 14, fontWeight: 700, color: T.navy, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.name}</div>
+                    <div style={{ fontSize: 11, color: T.textSec, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.mfr}</div>
                   </div>
-                  <Badge color={T.textSec} bg={T.bgSoft}>{p.specifics.length}</Badge>
                 </div>
-                <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
-                  {filtered.slice(0, 5).map((s, si) => (<div key={si} onClick={() => onNavigate("app")} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", borderRadius: 8, border: `1px solid ${T.borderLight}`, background: T.bg, cursor: "pointer", transition: "border-color 0.15s" }} onMouseEnter={e=>e.currentTarget.style.borderColor=T.accent} onMouseLeave={e=>e.currentTarget.style.borderColor=T.borderLight}>
-                    <div style={{ width: 8, height: 8, borderRadius: "50%", background: s.pct === 100 ? T.accent : T.amber, flexShrink: 0 }} />
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: 12, fontWeight: 600, color: T.textDark, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{s.ref}</div>
-                      <div style={{ fontSize: 10, color: T.textSec, marginTop: 1 }}>{s.site} {s.custom ? `\u00b7 ${s.custom}` : ""}</div>
-                    </div>
-                    <div style={{ textAlign: "right", flexShrink: 0 }}>
-                      <div style={{ fontSize: 10, color: T.textSec }}>{s.date}</div>
-                      <div style={{ fontSize: 10, fontWeight: 600, color: s.pct === 100 ? T.accent : T.amber }}>{s.pct}%</div>
-                    </div>
-                  </div>))}
-                  {filtered.length > 5 && <div style={{ fontSize: 11, color: T.accent, textAlign: "center", padding: 6, fontWeight: 600, cursor: "pointer" }}>{it?"Mostra tutti":"Show all"} ({filtered.length})</div>}
-                  {filtered.length === 0 && <div style={{ fontSize: 11, color: T.textSec, textAlign: "center", padding: 10 }}>{it?"Nessun risultato":"No results"}</div>}
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                    <Badge color={p.status === "published" ? T.accent : T.amber} bg={p.status === "published" ? T.accentSoft : T.amberSoft}>{p.status === "published" ? (it ? "Pubblicato" : "Published") : (it ? "Bozza" : "Draft")}</Badge>
+                    <span style={{ fontSize: 11, color: T.textSec }}>{p.date}</span>
+                  </div>
+                  <span style={{ fontSize: 13, fontWeight: 700, color: p.pct >= 85 ? T.accentDark : p.pct >= 70 ? T.amber : T.red }}>{p.pct}%</span>
                 </div>
-                <button onClick={() => onNavigate(p.prodType==="bespoke" ? "onboard-item" : "onboard-batch")} style={{ width: "100%", marginTop: 10, padding: "9px 0", borderRadius: 7, border: `1px dashed ${T.accent}`, background: T.accentSoft+"30", cursor: "pointer", fontFamily: font, fontSize: 12, fontWeight: 600, color: T.accentDark||T.accent, display: "flex", alignItems: "center", justifyContent: "center", gap: 5 }}><I d={ic.plus} size={12} color={T.accentDark||T.accent} /> {p.prodType==="bespoke"?(it?"Nuovo Item":"New Item"):(it?"Nuovo Batch":"New Batch")}</button>
-              </div>)}
+              </button>
             </div>);
           })}
           <button onClick={() => onNavigate("onboard")} style={{ padding: "20px", borderRadius: 12, background: T.bg, border: `2px dashed ${T.border}`, cursor: "pointer", fontFamily: font, textAlign: "center", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 8, minHeight: 160 }}><I d={ic.plus} size={24} color={T.border} /><span style={{ fontSize: 13, fontWeight: 600, color: T.textSec }}>{it ? "Nuovo passaporto" : "New passport"}</span></button>
@@ -4774,6 +4843,14 @@ function PublicDPPView({ onNavigate, L, isSpecific = false, dppData = null, imag
       valid: _gf(c, "valid_until") || "",
       issuer: _gf(c, "issuing_body") || "",
     })),
+    // Bucket 6 client bug: PanelHistory crashed with "cannot read properties
+    // of undefined (reading 'map')" on any real product because realProduct
+    // didn't declare a `versions` field. Result was a fully blank page as
+    // soon as the user clicked the Versions tab. Default to [] so PanelHistory
+    // renders the empty intro paragraph and nothing throws. The AppView
+    // Versions tab (separate component, uses live versions state) is the
+    // "real" version history editor; this is the read-only public view.
+    versions: [],
     // Show every uploaded source file. The DB-backed `dppData.documents` list
     // is authoritative — it includes everything the user actually uploaded
     // (PDFs, BoM xlsx, images). The passport's `_pp.documents` section only
@@ -5163,7 +5240,49 @@ function PublicDPPView({ onNavigate, L, isSpecific = false, dppData = null, imag
 }
 
 export default function DeePPy() {
-  const [page, setPage] = useState("landing");
+  // Initial page comes from the URL hash (so refreshes land on the right view
+  // and deep-links work). Fallback to "landing" when there's no hash yet.
+  const _initialPageFromHash = () => {
+    try {
+      const h = (window.location.hash || "").replace(/^#/, "");
+      return h && /^[a-z][a-z0-9-]*$/i.test(h) ? h : "landing";
+    } catch { return "landing"; }
+  };
+  const [page, setPage] = useState(_initialPageFromHash);
+
+  // Client-reported nav bug: browser back arrow left the SPA (e.g. back to
+  // Google if that's where they arrived from). Fix: every internal navigation
+  // pushes a history entry with the new page in state, and popstate syncs
+  // React state back when the user hits back/forward. Also on first mount
+  // we replaceState so the current view is anchored in history — otherwise
+  // the first "back" would skip the current view entirely.
+  const navigate = useCallback((next) => {
+    if (typeof next !== "string" || !next) return;
+    setPage(prev => {
+      if (prev === next) return prev;   // no-op — don't stack duplicate history entries
+      try { window.history.pushState({ page: next }, "", `#${next}`); } catch {}
+      return next;
+    });
+  }, []);
+  useEffect(() => {
+    // Anchor the CURRENT view in history on first mount so back doesn't
+    // immediately leave the app. Idempotent — replaceState overwrites the
+    // current entry rather than adding a new one.
+    try {
+      if (!window.history.state || window.history.state.page !== page) {
+        window.history.replaceState({ page }, "", `#${page}`);
+      }
+    } catch {}
+    const onPopState = (e) => {
+      const target = (e.state && e.state.page) || _initialPageFromHash();
+      // Direct setPage — NOT navigate() — so popstate itself doesn't push
+      // another history entry (that would flip the stack backwards).
+      setPage(target);
+    };
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   // Default language is English; remember the user's choice across refreshes.
   const [lang, setLang] = useState(() => {
     try { return localStorage.getItem("dpp_lang") || "en"; } catch { return "en"; }
@@ -5254,12 +5373,9 @@ export default function DeePPy() {
           // the catalog so the CatalogView effect can auto-open the modal.
           let hasDppParam = false;
           try { hasDppParam = new URLSearchParams(window.location.search).has("dpp"); } catch {}
-          setPage(prev => {
-            if (prev === "landing" || prev === "signup" || prev === "login") {
-              return hasDppParam ? "catalog" : "dashboard";
-            }
-            return prev;
-          });
+          if (page === "landing" || page === "signup" || page === "login") {
+            navigate(hasDppParam ? "catalog" : "dashboard");
+          }
         }
       })
       .catch(() => {})
@@ -5267,12 +5383,12 @@ export default function DeePPy() {
   }, [loadProducts]);
 
   // Called after a successful login/register.
-  const handleAuth = (u) => { setUser(u); loadProducts(); setPage("dashboard"); };
+  const handleAuth = (u) => { setUser(u); loadProducts(); navigate("dashboard"); };
 
   // Logout: clear the session cookie, then reset to the public landing.
   const handleLogout = async () => {
     try { await fetch("/api/auth/logout", { method: "POST", credentials: "include" }); } catch {}
-    setUser(null); setProducts([]); setActiveProductId(null); setPage("landing");
+    setUser(null); setProducts([]); setActiveProductId(null); navigate("landing");
   };
 
   // Fetch the full passport for one product (on navigate into it).
@@ -5335,6 +5451,30 @@ export default function DeePPy() {
       ));
       return proj.id;
     } catch {
+      return null;
+    }
+  };
+
+  // Dashboard "Duplicate" action: server-side deep-copy of an existing
+  // product's passport into a new draft. Returns the new id so the caller
+  // can navigate into the copy. Products list is refreshed from the server
+  // to include the new row.
+  const handleDuplicateProduct = async (productId) => {
+    try {
+      const res = await fetch(`/api/products/${productId}/duplicate`, {
+        method: "POST",
+        credentials: "include",
+      });
+      if (!res.ok) {
+        console.error(`Duplicate failed [${res.status}]`);
+        return null;
+      }
+      const api = await res.json();
+      const p = apiToProduct(api);
+      setProducts(prev => [p, ...prev.filter(x => x.id !== p.id)]);
+      return p.id;
+    } catch (e) {
+      console.error("Duplicate exception:", e);
       return null;
     }
   };
@@ -5431,7 +5571,7 @@ export default function DeePPy() {
 
   const navigateToProduct = (productId, view) => {
     setActiveProductId(productId);
-    setPage(view || "app-edit");
+    navigate(view || "app-edit");
     const prod = products.find(p => p.id === productId);
     if (!prod || !prod.dppData) loadProductDetail(productId);
   };
@@ -5446,30 +5586,30 @@ export default function DeePPy() {
     // Gate protected pages behind authentication (wait for the session check first).
     if (PROTECTED.has(page)) {
       if (!authChecked) return <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: font, color: T.textSec }}>…</div>;
-      if (!user) return <SignupPage onNavigate={setPage} L={L} onAuth={handleAuth} />;
+      if (!user) return <SignupPage onNavigate={navigate} L={L} onAuth={handleAuth} />;
     }
     switch (page) {
-      case "landing": return <NewLandingPage onNavigate={setPage} L={L} />;
-      case "signup": case "login": return <SignupPage onNavigate={setPage} L={L} onAuth={handleAuth} />;
-      case "onboard": return <OnboardingUpload onNavigate={setPage} L={L} onExtracted={handleExtracted} />;
-      case "onboard-batch": return <OnboardingUpload onNavigate={setPage} L={L} onExtracted={handleExtracted} presetType="batch" />;
-      case "onboard-item": return <OnboardingUpload onNavigate={setPage} L={L} onExtracted={handleExtracted} presetType="item" />;
-      case "dashboard": return <DashboardView onNavigate={setPage} L={L} products={products} onSelectProduct={navigateToProduct} onDelete={handleDeleteProduct} onLogout={handleLogout} user={user} />;
-      case "catalog": return <CatalogView onNavigate={setPage} L={L} onLogout={handleLogout} user={user} />;
-      case "projects": return <ProjectsView onNavigate={setPage} L={L} products={products} onLogout={handleLogout} user={user} />;
-      case "documents": return <DocumentsView onNavigate={setPage} L={L} onLogout={handleLogout} user={user} />;
-      case "team": return <TeamView onNavigate={setPage} L={L} onLogout={handleLogout} user={user} />;
-      case "settings": return <SettingsView onNavigate={setPage} L={L} onLogout={handleLogout} user={user} />;
-      case "app-edit": return <AppEditView onNavigate={setPage} L={L} dppData={activeProduct?.dppData} product={activeProduct} onAddProjectDPP={handleAddProjectDPP} onSave={handleSaveProduct} onReloadProduct={loadProductDetail} onCreateBlankProduct={handleCreateBlankProduct} />;
-      case "app": return <AppView onNavigate={setPage} L={L} product={activeProduct} onAddProjectDPP={handleAddProjectDPP} onPublish={handlePublish} onReloadProduct={loadProductDetail} />;
+      case "landing": return <NewLandingPage onNavigate={navigate} L={L} />;
+      case "signup": case "login": return <SignupPage onNavigate={navigate} L={L} onAuth={handleAuth} />;
+      case "onboard": return <OnboardingUpload onNavigate={navigate} L={L} onExtracted={handleExtracted} />;
+      case "onboard-batch": return <OnboardingUpload onNavigate={navigate} L={L} onExtracted={handleExtracted} presetType="batch" />;
+      case "onboard-item": return <OnboardingUpload onNavigate={navigate} L={L} onExtracted={handleExtracted} presetType="item" />;
+      case "dashboard": return <DashboardView onNavigate={navigate} L={L} products={products} onSelectProduct={navigateToProduct} onDelete={handleDeleteProduct} onDuplicate={handleDuplicateProduct} onLogout={handleLogout} user={user} />;
+      case "catalog": return <CatalogView onNavigate={navigate} L={L} onLogout={handleLogout} user={user} />;
+      case "projects": return <ProjectsView onNavigate={navigate} L={L} products={products} onLogout={handleLogout} user={user} />;
+      case "documents": return <DocumentsView onNavigate={navigate} L={L} onLogout={handleLogout} user={user} />;
+      case "team": return <TeamView onNavigate={navigate} L={L} onLogout={handleLogout} user={user} />;
+      case "settings": return <SettingsView onNavigate={navigate} L={L} onLogout={handleLogout} user={user} />;
+      case "app-edit": return <AppEditView onNavigate={navigate} L={L} dppData={activeProduct?.dppData} product={activeProduct} onAddProjectDPP={handleAddProjectDPP} onSave={handleSaveProduct} onReloadProduct={loadProductDetail} onCreateBlankProduct={handleCreateBlankProduct} />;
+      case "app": return <AppView onNavigate={navigate} L={L} product={activeProduct} onAddProjectDPP={handleAddProjectDPP} onPublish={handlePublish} onReloadProduct={loadProductDetail} />;
       case "public-dpp": return (
         <div style={{ minHeight: "100vh", background: T.navy, display: "flex", justifyContent: "center", padding: "20px 0" }}>
           <div style={{ width: "100%", maxWidth: "min(780px, 92vw)", background: T.bg, borderRadius: 16, overflow: "hidden", boxShadow: "0 25px 60px rgba(0,0,0,0.3)" }}>
-            <PublicDPPView onNavigate={setPage} L={L} dppData={activeProduct?.dppData} imageUrl={activeProduct?.imageUrl} />
+            <PublicDPPView onNavigate={navigate} L={L} dppData={activeProduct?.dppData} imageUrl={activeProduct?.imageUrl} />
           </div>
         </div>
       );
-      default: return <NewLandingPage onNavigate={setPage} L={L} />;
+      default: return <NewLandingPage onNavigate={navigate} L={L} />;
     }
   })();
   return <>{content}<CookieBanner lang={lang} /></>;
