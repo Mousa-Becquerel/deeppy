@@ -24,6 +24,15 @@ class MaterialEntry(BaseModel):
     material_id: str = Field(..., description="Identifier, e.g. 'Material#1'")
     id_code: ExtractedField[str] = Field(default_factory=ExtractedField)
     description: ExtractedField[str] = Field(default_factory=ExtractedField)
+    # Bucket 6 Tier C.2: client-requested field. Freeform tag for what kind
+    # of material this is (mineral binder / polymer / metal / natural fibre /
+    # etc.) — used for grouping and filtering in the manufacturer's UI. Not
+    # populated by the extractor yet; user-authored via the "Add material"
+    # form.
+    product_type: ExtractedField[str] = Field(
+        default_factory=ExtractedField,
+        description="High-level category of the material (e.g. 'mineral binder', 'polymer')"
+    )
     unit: ExtractedField[str] = Field(default_factory=ExtractedField)
     quantity_per_product: ExtractedField[float] = Field(default_factory=ExtractedField)
     percentage: ExtractedField[float] = Field(

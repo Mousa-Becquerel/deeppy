@@ -963,7 +963,7 @@ function OnboardingUpload({ onNavigate, L, onExtracted, presetType = null }) {
 }
 
 // ─── COMPONENTI TAB (shared edit + published) ────────────
-function ComponentiTab({ editMode, onNavigate, L, dppData, blankShell = false }) {
+function ComponentiTab({ editMode, onNavigate, L, dppData, blankShell = false, product = null, onSave = null, onReloadProduct = null }) {
   const _ = k => t(k, L?.lang);
   const it = L?.lang === "it";
   const _pp = dppData?.passport;
@@ -1061,13 +1061,77 @@ function ComponentiTab({ editMode, onNavigate, L, dppData, blankShell = false })
     setComponents(p => p.map(c => c.id === compId ? { ...c, linked: true, name: item.name, cat: item.cat, prod: item.prod, co2: item.co2, owner: item.prod, updated: "Today" } : c));
     setSearchFor(null); setCatSearch("");
   };
-  const removeComp = (id) => setComponents(p => p.filter(x => x.id !== id));
+  const removeComp = (id) => {
+    const next = components.filter(x => x.id !== id);
+    setComponents(next);
+    flushComponents(next);
+  };
   const unlinkComp = (id) => setComponents(p => p.map(c => c.id === id ? { ...c, linked: false, genericName: c.name, name: undefined, prod: undefined, co2: undefined, owner: undefined } : c));
-  const [newName, setNewName] = useState("");
+  // Bucket 6 Tier C.2: manually-added materials now capture product type,
+  // supplier, country of origin, and estimated percentage — client asked for
+  // these both to enrich the composition and to feed the "Material
+  // Composition" chart (which needs percentages). Draft holds the in-progress
+  // add form; on commit we append the material AND flush the passport.
+  const emptyDraft = { name: "", product_type: "", supplier: "", origin: "", percentage: "" };
+  const [draft, setDraft] = useState(emptyDraft);
+  // Legacy alias used by ONE onKeyDown handler; keep in sync with draft.name.
+  const newName = draft.name;
+  const setNewName = (v) => setDraft(d => ({ ...d, name: v }));
+
+  // Serialise the local `components` list back into passport.composition.
+  // materials shape and PATCH via onSave, so edits actually persist across
+  // reloads. Silently no-ops in read-only / demo / no-onSave contexts.
+  const flushComponents = async (nextComponents) => {
+    if (typeof onSave !== "function" || !product?.id) return;
+    const wrap = (v) => (v === "" || v == null) ? { value: null, confidence: "high" } : { value: v, confidence: "high" };
+    const wrapNum = (v) => {
+      const n = (v === "" || v == null) ? null : Number(v);
+      return { value: Number.isFinite(n) ? n : null, confidence: "high" };
+    };
+    const materials = nextComponents.map((c, i) => {
+      const existing = dppData?.passport?.composition?.materials?.find(m => (m.material_id || m.id_code?.value) === c.id) || {};
+      const suppliers = c.supplierName
+        ? [{ name: wrap(c.supplierName) }]
+        : (existing.suppliers || []);
+      return {
+        material_id: c.id || existing.material_id || `Material#${i + 1}`,
+        id_code: existing.id_code || wrap(null),
+        description: wrap(c.genericName || c.name || ""),
+        product_type: wrap(c.productType || null),
+        unit: existing.unit || wrap(null),
+        quantity_per_product: existing.quantity_per_product || wrap(null),
+        percentage: c.percentage != null && c.percentage !== "" ? wrapNum(c.percentage) : (existing.percentage || wrap(null)),
+        origin: wrap(c.origin || null),
+        recyclable: existing.recyclable || wrap(null),
+        suppliers,
+      };
+    });
+    const next = JSON.parse(JSON.stringify(dppData?.passport || {}));
+    if (!next.composition) next.composition = {};
+    next.composition.materials = materials;
+    const result = await onSave(product.id, next, "Composition edit");
+    if (result && result.ok !== false && typeof onReloadProduct === "function") {
+      onReloadProduct(product.id);
+    }
+  };
+
   const addManual = () => {
-    if (!newName.trim()) return;
-    setComponents(p => [...p, { id: "c" + Date.now(), linked: false, genericName: newName.trim(), source: "Manually added" }]);
-    setNewName(""); setShowAdd(false);
+    if (!draft.name.trim()) return;
+    const newRow = {
+      id: "c" + Date.now(),
+      linked: false,
+      genericName: draft.name.trim(),
+      productType: draft.product_type.trim() || null,
+      supplierName: draft.supplier.trim() || null,
+      origin: draft.origin.trim() || null,
+      percentage: draft.percentage === "" ? null : Number(draft.percentage),
+      source: "Manually added",
+    };
+    const next = [...components, newRow];
+    setComponents(next);
+    setDraft(emptyDraft);
+    setShowAdd(false);
+    flushComponents(next);
   };
   const [showAdd, setShowAdd] = useState(false);
   // Item 15 (client feedback): let the user show/hide supplier names in the
@@ -1213,11 +1277,45 @@ function ComponentiTab({ editMode, onNavigate, L, dppData, blankShell = false })
           {editMode && showAdd && (
             <div style={{ marginTop: 8 }}>
               <div style={{ width: 2, height: 10, background: T.border, marginLeft: 32 }} />
-              <div style={{ marginLeft: 20, display: "flex", gap: 8, alignItems: "center", padding: "8px 14px", borderRadius: 8, border: `1px solid ${T.accent}`, background: T.bg }}>
-                <I d={ic.plus} size={14} color={T.accentDark} />
-                <input autoFocus value={newName} onChange={e => setNewName(e.target.value)} onKeyDown={e => e.key === "Enter" && addManual()} placeholder="Nome componente (es. Guarnizione EPDM)" style={{ flex: 1, border: "none", outline: "none", fontSize: 13, background: "transparent", fontFamily: font }} />
-                <Btn small primary onClick={addManual} style={{ padding: "4px 12px", fontSize: 11 }}>Aggiungi</Btn>
-                <button onClick={() => { setShowAdd(false); setNewName(""); }} style={{ background: "none", border: "none", cursor: "pointer" }}><I d={ic.x} size={14} color={T.textSec} /></button>
+              {/* Bucket 6 Tier C.2: expanded add-material form. Captures
+                  product type, supplier, country of origin, and estimated
+                  percentage (needed for the composition chart). Only the
+                  name is required; the rest are optional. Enter on the
+                  Name field submits with just the name. */}
+              <div style={{ marginLeft: 20, padding: "12px 14px", borderRadius: 8, border: `1px solid ${T.accent}`, background: T.bg }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+                  <I d={ic.plus} size={14} color={T.accentDark} />
+                  <span style={{ fontSize: 12, fontWeight: 700, color: T.textDark }}>{it ? "Nuovo componente" : "New material"}</span>
+                  <button onClick={() => { setShowAdd(false); setDraft(emptyDraft); }} style={{ marginLeft: "auto", background: "none", border: "none", cursor: "pointer", padding: 2 }}><I d={ic.x} size={14} color={T.textSec} /></button>
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr 1fr", gap: 8, marginBottom: 8 }}>
+                  <div>
+                    <div style={{ fontSize: 10, fontWeight: 700, color: T.textSec, marginBottom: 3 }}>{it ? "Nome *" : "Name *"}</div>
+                    <input autoFocus value={draft.name} onChange={e => setDraft(d => ({ ...d, name: e.target.value }))} onKeyDown={e => e.key === "Enter" && addManual()} style={{ width: "100%", padding: "6px 9px", borderRadius: 6, border: `1px solid ${T.border}`, fontSize: 12, fontFamily: font, outline: "none" }} />
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 10, fontWeight: 700, color: T.textSec, marginBottom: 3 }}>{it ? "Tipologia" : "Product type"}</div>
+                    <input value={draft.product_type} onChange={e => setDraft(d => ({ ...d, product_type: e.target.value }))} style={{ width: "100%", padding: "6px 9px", borderRadius: 6, border: `1px solid ${T.border}`, fontSize: 12, fontFamily: font, outline: "none" }} />
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 10, fontWeight: 700, color: T.textSec, marginBottom: 3 }}>{it ? "Fornitore" : "Supplier"}</div>
+                    <input value={draft.supplier} onChange={e => setDraft(d => ({ ...d, supplier: e.target.value }))} style={{ width: "100%", padding: "6px 9px", borderRadius: 6, border: `1px solid ${T.border}`, fontSize: 12, fontFamily: font, outline: "none" }} />
+                  </div>
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 10 }}>
+                  <div>
+                    <div style={{ fontSize: 10, fontWeight: 700, color: T.textSec, marginBottom: 3 }}>{it ? "Paese di origine" : "Country of origin"}</div>
+                    <input value={draft.origin} onChange={e => setDraft(d => ({ ...d, origin: e.target.value }))} style={{ width: "100%", padding: "6px 9px", borderRadius: 6, border: `1px solid ${T.border}`, fontSize: 12, fontFamily: font, outline: "none" }} />
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 10, fontWeight: 700, color: T.textSec, marginBottom: 3 }}>{it ? "Percentuale stimata (%)" : "Estimated percentage (%)"}</div>
+                    <input type="number" step="0.1" min="0" max="100" value={draft.percentage} onChange={e => setDraft(d => ({ ...d, percentage: e.target.value }))} style={{ width: "100%", padding: "6px 9px", borderRadius: 6, border: `1px solid ${T.border}`, fontSize: 12, fontFamily: font, outline: "none" }} />
+                  </div>
+                </div>
+                <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
+                  <button onClick={() => { setShowAdd(false); setDraft(emptyDraft); }} style={{ padding: "5px 12px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.bg, cursor: "pointer", fontFamily: font, fontSize: 11, fontWeight: 600, color: T.textDark }}>{it ? "Annulla" : "Cancel"}</button>
+                  <Btn small primary onClick={addManual} disabled={!draft.name.trim()} style={{ padding: "4px 12px", fontSize: 11 }}>{it ? "Aggiungi" : "Add"}</Btn>
+                </div>
               </div>
             </div>
           )}
@@ -2103,7 +2201,7 @@ function AppEditView({ onNavigate, L, dppData, product, onAddProjectDPP, onSave,
       </ColSec>)}
       {!blankShell && <div style={{ marginTop: 4 }}><SupplyMap dppData={dppData} /></div>}
     </>);
-    case "composizione": return (<ComponentiTab editMode={true} onNavigate={onNavigate} L={L} dppData={dppData} blankShell={blankShell} />);
+    case "composizione": return (<ComponentiTab editMode={true} onNavigate={onNavigate} L={L} dppData={dppData} blankShell={blankShell} product={product} onSave={onSave} onReloadProduct={onReloadProduct} />);
     case "prestazioni": {
       const perfValuesRaw = hasAI ? (pp?.performance?.values || []) : null;
       // Item 1: apply SKU-variant filter first so the "expected/other" counts
@@ -2975,7 +3073,7 @@ function VersionsTab({ L, versions, productId, onChange }) {
 
 
 // ─── APP VIEW (PUBLISHED / PREVIEW) ─────────────────────
-function AppView({ onNavigate, L, product, onAddProjectDPP, onPublish, onReloadProduct }) {
+function AppView({ onNavigate, L, product, onAddProjectDPP, onPublish, onReloadProduct, onSave }) {
   const _ = k => t(k, L?.lang);
   const it = L?.lang === "it";
   const [tab, setTab] = useState("panoramica");
@@ -2987,6 +3085,34 @@ function AppView({ onNavigate, L, product, onAddProjectDPP, onPublish, onReloadP
   const [showExport, setShowExport] = useState(false);
   const [showPublicDPP, setShowPublicDPP] = useState(false);
   const [versions, setVersions] = useState([]);
+  // Bucket 6 Tier C: banner KPIs (Carbon / Recycled / Recyclable) can be
+  // overridden manually. The override is stored under passport.metadata.
+  // kpi_overrides; the display prefers override, falls back to derived.
+  // `editingKpi` = the key of whatever KPI is currently being edited
+  // (or null); `kpiDraft` holds the in-progress input value.
+  const [editingKpi, setEditingKpi] = useState(null);
+  const [kpiDraft, setKpiDraft] = useState("");
+  const [kpiSaving, setKpiSaving] = useState(false);
+  const kpiOverrides = product?.dppData?.passport?.metadata?.kpi_overrides || {};
+  const saveKpiOverride = async (key, value) => {
+    if (!product?.id || typeof onSave !== "function") { setEditingKpi(null); return; }
+    const trimmed = (value || "").trim();
+    const current = kpiOverrides[key] || "";
+    if (trimmed === current) { setEditingKpi(null); return; }   // no-op
+    setKpiSaving(true);
+    const pp = product?.dppData?.passport || {};
+    const next = JSON.parse(JSON.stringify(pp));
+    if (!next.metadata) next.metadata = {};
+    if (!next.metadata.kpi_overrides) next.metadata.kpi_overrides = {};
+    if (trimmed === "") delete next.metadata.kpi_overrides[key];
+    else next.metadata.kpi_overrides[key] = trimmed;
+    const result = await onSave(product.id, next, `Edited KPI: ${key}`);
+    setKpiSaving(false);
+    setEditingKpi(null);
+    if (result && result.ok !== false && typeof onReloadProduct === "function") {
+      onReloadProduct(product.id);   // pull fresh state so the display picks up the override
+    }
+  };
   // Item 10: real QR code, not the decorative SVG that shipped before.
   // Encodes a deep-link to the catalog with the product pre-selected;
   // opening the URL takes any user (once logged in) straight to this DPP.
@@ -3440,7 +3566,7 @@ body{font-family:'Inter',sans-serif;color:#1E293B;font-size:12px;line-height:1.5
       </div>
       <SupplyMap dppData={product?.dppData} />
     </>);
-    case "composizione": return (<ComponentiTab editMode={false} onNavigate={onNavigate} L={L} dppData={product?.dppData} />);
+    case "composizione": return (<ComponentiTab editMode={false} onNavigate={onNavigate} L={L} dppData={product?.dppData} product={product} onSave={onSave} onReloadProduct={onReloadProduct} />);
     case "prestazioni": {
       if (hasAI) {
         const vals = pp?.performance?.values || [];
@@ -3697,18 +3823,53 @@ body{font-family:'Inter',sans-serif;color:#1E293B;font-size:12px;line-height:1.5
                 <div style={{ marginBottom: 8 }}><Badge color={T.textSec} bg={T.bgSoft}><I d={ic.clip} size={9} color={T.textSec} /> {puid}</Badge></div>
                 <p style={{ fontSize: 13, color: T.textSec, margin: "0 0 12px", lineHeight: 1.5 }}>{rv("overview.product_info.product_description", "Pannello isolante in polistirene estruso ad alta densità per isolamento termico di pareti, pavimenti e coperture.")}</p>
                 <div style={{ display: "flex", gap: 10 }}>
-                  {/* Bucket 5 item 1: ENERGY KPI removed per client — energy class
-                      isn't extracted from EPDs, and the placeholder was misleading. */}
+                  {/* Bucket 5 item 1: ENERGY KPI removed.
+                      Bucket 6 Tier C.1: values are editable — hover shows a
+                      pencil, click swaps in an inline input. Overrides are
+                      persisted in passport.metadata.kpi_overrides and shown
+                      in preference to the derived value; clear the input to
+                      revert to the derived value. `key` matches the map key
+                      so the override survives round-trips cleanly. */}
                   {[
-                    {ic: ic.leaf, l:"CARBON", v: hasAI ? (gwpStages.length ? `${gwpTotal.toFixed(1)} kg` : (it?"n.d.":"n/a")) : "5.5 kg", s:"CO₂eq"},
-                    {ic: ic.recycle, l: it?"RICICLATO":"RECYCLED", v: hasAI ? (recycledVal || (it?"n.d.":"n/a")) : "15%", s:"content"},
-                    {ic: ic.recycle, l: it?"RICICLABILE":"RECYCLABLE", v: hasAI ? (it?"n.d.":"n/a") : "85%", s:"end of life"},
-                  ].map((k,i)=>(
-                    <div key={i} style={{ flex: 1, padding: "10px 14px", borderRadius: 8, background: k.dk?T.navyLight:T.bgSoft, border: `1px solid ${k.dk?T.navyMid:T.border}` }}>
-                      <div style={{ fontSize: 10, fontWeight: 700, color: k.dk?T.textMuted:T.textSec, textTransform: "uppercase", display: "flex", alignItems: "center", gap: 3 }}><I d={k.ic} size={10} color={k.dk?T.textMuted:T.textSec} />{k.l}</div>
-                      <div style={{ fontSize: 22, fontWeight: 800, color: k.dk?T.accent:T.accentDark, marginTop: 1 }}>{k.v}</div>
+                    {key:"carbon",     ic: ic.leaf,    l:"CARBON",                         derived: hasAI ? (gwpStages.length ? `${gwpTotal.toFixed(1)} kg` : (it?"n.d.":"n/a")) : "5.5 kg", s:"CO₂eq"},
+                    {key:"recycled",   ic: ic.recycle, l: it?"RICICLATO":"RECYCLED",        derived: hasAI ? (recycledVal || (it?"n.d.":"n/a")) : "15%",                                  s:"content"},
+                    {key:"recyclable", ic: ic.recycle, l: it?"RICICLABILE":"RECYCLABLE",    derived: hasAI ? (it?"n.d.":"n/a") : "85%",                                                    s:"end of life"},
+                  ].map((k,i)=>{
+                    const override = kpiOverrides[k.key];
+                    const displayV = (override != null && override !== "") ? override : k.derived;
+                    const isEd = editingKpi === k.key;
+                    const canEdit = typeof onSave === "function" && !!product?.id;
+                    return (
+                    <div key={i}
+                      onMouseEnter={()=>!isEd && setEditingKpi(prev => prev == null ? `_hover:${k.key}` : prev)}
+                      onMouseLeave={()=>{ if (editingKpi === `_hover:${k.key}`) setEditingKpi(null); }}
+                      style={{ position: "relative", flex: 1, padding: "10px 14px", borderRadius: 8, background: k.dk?T.navyLight:T.bgSoft, border: `1px solid ${isEd?T.accent:(k.dk?T.navyMid:T.border)}` }}>
+                      <div style={{ fontSize: 10, fontWeight: 700, color: k.dk?T.textMuted:T.textSec, textTransform: "uppercase", display: "flex", alignItems: "center", gap: 3 }}>
+                        <I d={k.ic} size={10} color={k.dk?T.textMuted:T.textSec} />{k.l}
+                        {override != null && override !== "" && !isEd && (
+                          <span title={it?"Valore modificato manualmente":"Manually edited"} style={{ marginLeft: "auto", fontSize: 8, fontWeight: 700, padding: "1px 5px", borderRadius: 3, background: T.accentSoft, color: T.accentDark }}>{it?"MOD":"EDIT"}</span>
+                        )}
+                      </div>
+                      {isEd ? (
+                        <div style={{ display: "flex", gap: 4, marginTop: 4, alignItems: "center" }}>
+                          <input autoFocus value={kpiDraft} onChange={e=>setKpiDraft(e.target.value)}
+                            onKeyDown={e=>{ if (e.key === "Enter") saveKpiOverride(k.key, kpiDraft); else if (e.key === "Escape") setEditingKpi(null); }}
+                            placeholder={k.derived}
+                            style={{ flex: 1, minWidth: 0, padding: "4px 6px", borderRadius: 4, border: `1px solid ${T.accent}`, fontSize: 16, fontWeight: 800, color: T.accentDark, background: T.bg, fontFamily: font, outline: "none" }} />
+                          <button disabled={kpiSaving} onClick={()=>saveKpiOverride(k.key, kpiDraft)} title={it?"Salva":"Save"} style={{ padding: "3px 6px", borderRadius: 4, border: `1px solid ${T.accent}`, background: T.accent, cursor: kpiSaving ? "wait" : "pointer" }}><I d={ic.check} size={10} color={T.navy} /></button>
+                          <button disabled={kpiSaving} onClick={()=>setEditingKpi(null)} title={it?"Annulla":"Cancel"} style={{ padding: "3px 6px", borderRadius: 4, border: `1px solid ${T.border}`, background: T.bg, cursor: kpiSaving ? "wait" : "pointer" }}><I d={ic.x} size={10} color={T.textSec} /></button>
+                        </div>
+                      ) : (
+                        <div style={{ display: "flex", gap: 4, alignItems: "baseline", marginTop: 1 }}>
+                          <div style={{ fontSize: 22, fontWeight: 800, color: k.dk?T.accent:T.accentDark }}>{displayV}</div>
+                          {canEdit && editingKpi === `_hover:${k.key}` && (
+                            <button onClick={()=>{ setKpiDraft(override || ""); setEditingKpi(k.key); }} title={it?"Modifica":"Edit"} style={{ marginLeft: "auto", padding: "2px 6px", borderRadius: 4, border: `1px solid ${T.border}`, background: T.bg, cursor: "pointer", fontFamily: font, fontSize: 10, color: T.textSec }}><I d={ic.edit} size={10} color={T.textSec} /></button>
+                          )}
+                        </div>
+                      )}
                       <div style={{ fontSize: 10, color: k.dk?T.textMuted:T.textSec }}>{k.s}</div>
-                    </div>))}
+                    </div>);
+                  })}
                 </div>
                 <div style={{ display: "flex", gap: 16, marginTop: 10, fontSize: 12, color: T.textSec }}>
                   <span style={{ display: "flex", alignItems: "center", gap: 3 }}><I d={ic.factory} size={12} color={T.textSec} /> {pmfr}</span>
@@ -5601,7 +5762,7 @@ export default function DeePPy() {
       case "team": return <TeamView onNavigate={navigate} L={L} onLogout={handleLogout} user={user} />;
       case "settings": return <SettingsView onNavigate={navigate} L={L} onLogout={handleLogout} user={user} />;
       case "app-edit": return <AppEditView onNavigate={navigate} L={L} dppData={activeProduct?.dppData} product={activeProduct} onAddProjectDPP={handleAddProjectDPP} onSave={handleSaveProduct} onReloadProduct={loadProductDetail} onCreateBlankProduct={handleCreateBlankProduct} />;
-      case "app": return <AppView onNavigate={navigate} L={L} product={activeProduct} onAddProjectDPP={handleAddProjectDPP} onPublish={handlePublish} onReloadProduct={loadProductDetail} />;
+      case "app": return <AppView onNavigate={navigate} L={L} product={activeProduct} onAddProjectDPP={handleAddProjectDPP} onPublish={handlePublish} onReloadProduct={loadProductDetail} onSave={handleSaveProduct} />;
       case "public-dpp": return (
         <div style={{ minHeight: "100vh", background: T.navy, display: "flex", justifyContent: "center", padding: "20px 0" }}>
           <div style={{ width: "100%", maxWidth: "min(780px, 92vw)", background: T.bg, borderRadius: 16, overflow: "hidden", boxShadow: "0 25px 60px rgba(0,0,0,0.3)" }}>
