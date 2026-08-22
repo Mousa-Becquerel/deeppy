@@ -729,6 +729,29 @@ async def get_catalog_product(product_id: str, user: dict = Depends(get_current_
         return _product_detail(product)
 
 
+_IMG_EXT_RE = ("jpg", "jpeg", "png", "webp", "gif", "bmp", "tiff", "tif")
+
+
+def _catalog_image_url(product) -> Optional[str]:
+    """Bucket 6: pick an image for a catalog card. Prefer the explicit
+    product_image upload; fall back to the first image among source docs.
+    Returns a `/api/catalog/{pid}/documents/{did}` URL (cross-tenant safe)
+    or None when no image exists. Cache-busted with updated_at so a
+    re-upload doesn't show the stale one from the browser cache."""
+    docs = getattr(product, "documents", None) or []
+    explicit = next((d for d in docs if getattr(d, "doc_type", None) == "product_image"), None)
+    fallback = next(
+        (d for d in docs
+         if (getattr(d, "filename", "") or "").lower().rsplit(".", 1)[-1] in _IMG_EXT_RE),
+        None,
+    )
+    doc = explicit or fallback
+    if not doc:
+        return None
+    bust = f"?v={product.updated_at.isoformat()}" if getattr(product, "updated_at", None) else ""
+    return f"/api/catalog/{product.id}/documents/{doc.id}{bust}"
+
+
 @app.get("/api/catalog")
 async def list_catalog(user: dict = Depends(get_current_user)):
     """Public catalog: every status='published' product across all companies.
@@ -759,6 +782,7 @@ async def list_catalog(user: dict = Depends(get_current_user)):
                 "company_name": companies.get(p.company_id),
                 "is_own": p.company_id == my_company,
                 "kpis": _catalog_kpis(p.passport or {}),
+                "image_url": _catalog_image_url(p),
                 "updated_at": p.updated_at.isoformat() if p.updated_at else None,
             }
             for p in rows

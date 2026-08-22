@@ -2785,9 +2785,16 @@ function CatalogView({ onNavigate, L }) {
               return (
                 <button key={p.id} onClick={() => openCard(p)} style={{ borderRadius: 12, border: `1px solid ${T.border}`, background: T.bg, overflow: "hidden", cursor: "pointer", fontFamily: font, textAlign: "left", padding: 0, display: "block", width: "100%", transition: "border-color 0.15s, box-shadow 0.15s" }} onMouseEnter={e=>{e.currentTarget.style.borderColor=T.accent;e.currentTarget.style.boxShadow=`0 0 0 1px ${T.accent}30`}} onMouseLeave={e=>{e.currentTarget.style.borderColor=T.border;e.currentTarget.style.boxShadow="none"}}>
                   <div style={{ display: "flex", gap: 14, padding: "16px 18px 10px", alignItems: "flex-start" }}>
-                    <div style={{ width: 68, height: 68, borderRadius: 8, background: `linear-gradient(135deg, ${T.bgSoft}, ${T.accentSoft}40)`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, border: `1px solid ${T.borderLight}` }}>
-                      <I d={ic.box} size={26} color={T.border} />
-                    </div>
+                    {/* Bucket 6: catalog thumbnail from the product's uploaded
+                        image (product_image doc_type, or first image among
+                        source docs). Falls back to the placeholder icon. */}
+                    {p.image_url ? (
+                      <img src={p.image_url} alt={p.name || ""} style={{ width: 68, height: 68, borderRadius: 8, objectFit: "cover", background: T.bgSoft, border: `1px solid ${T.borderLight}`, flexShrink: 0 }} onError={e=>{e.currentTarget.style.display="none";}} />
+                    ) : (
+                      <div style={{ width: 68, height: 68, borderRadius: 8, background: `linear-gradient(135deg, ${T.bgSoft}, ${T.accentSoft}40)`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, border: `1px solid ${T.borderLight}` }}>
+                        <I d={ic.box} size={26} color={T.border} />
+                      </div>
+                    )}
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ fontSize: 10, color: T.textSec, display: "flex", alignItems: "center", gap: 3, marginBottom: 2 }}><I d={ic.factory} size={9} color={T.textSec} />{mfr}</div>
                       <div style={{ fontSize: 15, fontWeight: 700, color: T.textDark, marginBottom: 5, lineHeight: 1.2 }}>{p.name || "\u2014"}</div>
@@ -4182,11 +4189,21 @@ function DashboardView({ onNavigate, L, products = [], onSelectProduct, onDelete
               const newId = await onDuplicate(p.id);
               if (newId && onSelectProduct) onSelectProduct(newId, "app-edit");
             };
-            return (<div key={i} style={{ position: "relative", borderRadius: 12, background: T.bg, border: `1px solid ${T.border}`, fontFamily: font, textAlign: "left", transition: "border-color 0.15s" }}>
+            // Bucket 6: type-indicator chip. Every card is a MODEL today.
+            // When Tier D adds BATCH / ITEM cards, `dppType` on p flips to
+            // "batch" or "item" and this map paints the correct chip in
+            // the accent (batch) or blue (item) palette.
+            const typeChip = ({ model: { label: "MODEL", color: T.navy,      bg: T.bgSoft },
+                                batch: { label: "BATCH", color: T.accentDark, bg: T.accentSoft },
+                                item:  { label: "ITEM",  color: "#2563EB",   bg: T.blueSoft || "#EFF6FF" } })[p.dppType || "model"];
+            const stripColor = typeChip.color;
+            return (<div key={i} style={{ position: "relative", borderRadius: 12, background: T.bg, border: `1px solid ${T.border}`, borderLeft: `3px solid ${stripColor}`, fontFamily: font, textAlign: "left", transition: "border-color 0.15s" }}>
               {/* Bucket 6 dashboard: Duplicate + Delete side by side.
                   Progress bar removed (percentage retained), card image
                   replaces the icon tile when uploaded. Expand/specifics
-                  block below has been removed per client request. */}
+                  block below has been removed per client request.
+                  A colored left strip + MODEL/BATCH/ITEM chip identify
+                  the card type at a glance. */}
               {isReal && (onDelete || onDuplicate) && (
                 <div style={{ position: "absolute", top: 12, right: 12, display: "flex", gap: 4, zIndex: 2 }}>
                   {onDuplicate && (
@@ -4213,6 +4230,7 @@ function DashboardView({ onNavigate, L, products = [], onSelectProduct, onDelete
                 </div>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                   <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                    <Badge color={typeChip.color} bg={typeChip.bg}>{typeChip.label}</Badge>
                     <Badge color={p.status === "published" ? T.accent : T.amber} bg={p.status === "published" ? T.accentSoft : T.amberSoft}>{p.status === "published" ? (it ? "Pubblicato" : "Published") : (it ? "Bozza" : "Draft")}</Badge>
                     <span style={{ fontSize: 11, color: T.textSec }}>{p.date}</span>
                   </div>
