@@ -545,6 +545,54 @@ const FAMILY_LABELS = {
   AGG: "Aggregates",
 };
 
+// Doc #3: EU funding disclaimer. Compact clickable chip inside the sidebar
+// footer; click expands a popover with the full grant statement + a
+// "More info" link back to https://deeppy.eu/agrobuilder. Text switches
+// with the platform language via L.lang.
+function EuFundingDisclaimer({ L }) {
+  const it = L?.lang === "it";
+  const [open, setOpen] = useState(false);
+  return (
+    <div style={{ padding: "8px 12px 0", position: "relative" }}>
+      <button
+        onClick={() => setOpen(v => !v)}
+        title={it ? "Finanziato dall'Unione Europea" : "Funded by the European Union"}
+        style={{ display: "flex", alignItems: "center", gap: 6, width: "100%", padding: "6px 8px", borderRadius: 5, border: `1px solid ${T.navyMid}`, background: open ? T.navyLight : "transparent", color: T.textMuted, fontSize: 10, cursor: "pointer", fontFamily: font, textAlign: "left" }}
+      >
+        <span style={{ fontSize: 14, lineHeight: 1 }} aria-hidden>🇪🇺</span>
+        <span style={{ flex: 1, minWidth: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+          {it ? "Finanziato dall'UE" : "EU-funded project"}
+        </span>
+        <I d={ic.chevRight} size={10} color={T.textMuted} style={{ transform: open ? "rotate(90deg)" : "none", transition: "transform .15s" }} />
+      </button>
+      {open && (
+        <div style={{ position: "absolute", left: "calc(100% + 8px)", bottom: 0, width: 320, padding: "12px 14px", borderRadius: 8, background: T.bg, border: `1px solid ${T.border}`, boxShadow: "0 12px 32px rgba(0,0,0,0.25)", zIndex: 100, color: T.textDark }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8 }}>
+            <span style={{ fontSize: 16 }} aria-hidden>🇪🇺</span>
+            <span style={{ fontSize: 11, fontWeight: 700, color: T.navy, textTransform: "uppercase", letterSpacing: "0.05em" }}>
+              {it ? "Progetto finanziato" : "Funded project"}
+            </span>
+          </div>
+          <div style={{ fontSize: 11, color: T.textSec, lineHeight: 1.5, marginBottom: 10 }}>
+            {it
+              ? "Il progetto ha ricevuto finanziamenti dall'Unione Europea (Grant Agreement ID 101136597 e Grant Agreement ID 101091494)."
+              : "This project received funding from the European Union (Grant Agreement ID 101136597 and Grant Agreement ID 101091494)."}
+          </div>
+          <a
+            href="https://deeppy.eu/agrobuilder"
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "5px 10px", borderRadius: 5, border: `1px solid ${T.accent}`, background: T.accentSoft, color: T.accentDark, fontSize: 11, fontWeight: 700, textDecoration: "none", fontFamily: font }}
+          >
+            {it ? "Maggiori informazioni" : "More info"}
+            <I d={ic.arrow} size={11} color={T.accentDark} />
+          </a>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function Sidebar({ activePage, onNavigate, L, onLogout }) {
   const t = (it, en) => L?.lang === "it" ? it : en;
   const nav = (pg) => onNavigate && onNavigate(pg);
@@ -588,11 +636,32 @@ function Sidebar({ activePage, onNavigate, L, onLogout }) {
           );
         })}
       </div>
+      {/* Doc #3: EU funding disclaimer. Sits at the true bottom-left of the
+          platform (the sidebar occupies that column across every authenticated
+          page). Compact by default, opens a small popover with the full
+          grant statement + "More info" link on click. */}
+      <EuFundingDisclaimer L={L} />
       <div style={{ padding: "10px 12px", borderTop: `1px solid ${T.navyMid}` }}>
         <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 8 }}>
           <div style={{ width: 26, height: 26, borderRadius: "50%", background: T.accentDark, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 700, color: T.text }}>{initials}</div>
           <div style={{ flex: 1, minWidth: 0 }}><div style={{ fontSize: 11, fontWeight: 600, color: T.text, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{displayName}</div><div style={{ fontSize: 9, color: T.textMuted, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{me?.email || ""}</div></div>
         </div>
+        {/* Doc #2: ITA/ENG language toggle. Persisted via App-level useState +
+            localStorage, so the choice survives page reloads. Landing already
+            had this switch; this brings it inside the authenticated app. */}
+        {L?.setLang && (
+          <div style={{ display: "flex", gap: 4, marginBottom: 8 }}>
+            {[["it", "IT"], ["en", "EN"]].map(([code, label]) => {
+              const active = L.lang === code;
+              return (
+                <button key={code} onClick={() => L.setLang(code)}
+                  style={{ flex: 1, padding: "4px 0", borderRadius: 4, border: `1px solid ${active ? T.accent : T.navyMid}`, background: active ? T.accent : "transparent", color: active ? T.navy : T.textMuted, fontSize: 10, fontWeight: 700, cursor: "pointer", fontFamily: font }}>
+                  {label}
+                </button>
+              );
+            })}
+          </div>
+        )}
         <button onClick={doLogout} style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "6px 0", borderRadius: 5, border: `1px solid ${T.navyMid}`, background: "transparent", color: T.textMuted, fontSize: 11, cursor: "pointer", fontFamily: font }}><I d={ic.arrow} size={12} color={T.textMuted} style={{ transform: "rotate(180deg)" }} />{t("Esci","Sign out")}</button>
       </div>
     </nav>
@@ -3520,7 +3589,23 @@ body{font-family:'Inter',sans-serif;color:#1E293B;font-size:12px;line-height:1.5
   const currentItem = allItems.find(i => i.id === selectedItemId);
   const levelLabel = dppLevel === "model" ? "Model" : dppLevel === "batch" ? "Batch" : "Item";
 
-  const prodTabs = [{key:"panoramica",label:_("overview"),d:ic.chart},{key:"composizione",label:_("composition"),d:ic.layers},{key:"prestazioni",label:_("performance"),d:ic.bolt},{key:"conformita",label:_("compliance"),d:ic.shield},{key:"lifecycle",label:_("lifecycle"),d:ic.clock}];
+  // Doc #6: BATCH DPP is logistics (a production lot), not a spec sheet — it
+  // inherits Performance/Compliance/Lifecycle from its parent MODEL. Strip
+  // those tabs at the BATCH level and only show Overview + Composition.
+  // MODEL and ITEM keep the full set (Item is a physical unit; its passport
+  // still surfaces all inherited data).
+  const prodTabs = dppLevel === "batch"
+    ? [
+        {key:"panoramica",label:_("overview"),d:ic.chart},
+        {key:"composizione",label:_("composition"),d:ic.layers},
+      ]
+    : [
+        {key:"panoramica",label:_("overview"),d:ic.chart},
+        {key:"composizione",label:_("composition"),d:ic.layers},
+        {key:"prestazioni",label:_("performance"),d:ic.bolt},
+        {key:"conformita",label:_("compliance"),d:ic.shield},
+        {key:"lifecycle",label:_("lifecycle"),d:ic.clock},
+      ];
   // Management tabs depend on DPP level:
   // - Model: Batch + Item (can drill into either)
   // - Batch: Item only
@@ -3558,7 +3643,57 @@ body{font-family:'Inter',sans-serif;color:#1E293B;font-size:12px;line-height:1.5
 
   const renderTab = () => {
     switch(tab){
-    case "panoramica": return (<>
+    case "panoramica": {
+      // Doc #7 (and part of #6): when the user is on the BATCH level, show a
+      // batch-specific Overview — DPP model name, UID, GTIN/EAN, production
+      // batch, dates, site, and *Quantity*. This is the same 8-field card
+      // the Model tab's "Batch" section renders; keeping the shape identical
+      // so users see the same information wherever they navigate to it.
+      // MODEL and ITEM keep the standard chart-heavy overview below.
+      if (dppLevel === "batch") {
+        const spec = currentBatch
+          ? { batch: currentBatch.lot, site: currentBatch.site, date: currentBatch.date, productionDate: currentBatch.date, overrides: {} }
+          : null;
+        const dash = "—";
+        const rows = spec ? [
+          { l: it?"Nome DPP Model":"DPP model name", v: product?.name || pname || dash },
+          { l: "UID", v: puid || dash },
+          { l: "GTIN/EAN", v: rv("overview.product_info.gtin", dash) },
+          { l: it?"Lotto produttivo":"Production batch", v: spec.batch || dash },
+          { l: it?"Data di produzione":"Date of manufacturing", v: spec.productionDate || dash },
+          { l: it?"Data di consegna":"Date of delivery", v: spec.overrides?.delivery_date || dash },
+          { l: it?"Stabilimento":"Production site", v: spec.site || dash },
+          { l: it?"Quantità":"Quantity", v: spec.overrides?.quantity || dash },
+        ] : [];
+        return (<div style={{ marginBottom: 20 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: T.textSec, textTransform: "uppercase", letterSpacing: "0.05em" }}>
+              {it?"Panoramica DPP Batch":"Batch DPP Overview"}
+            </div>
+          </div>
+          {rows.length ? (
+            <div style={{ borderRadius: 10, border: `1px solid ${T.border}`, background: T.bg, overflow: "hidden" }}>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 0 }}>
+                {rows.map((r, i) => {
+                  const inLastRow = i >= rows.length - 2;
+                  const isLeft = i % 2 === 0;
+                  return (
+                    <div key={i} style={{ padding: "14px 18px", borderBottom: inLastRow ? "none" : `1px solid ${T.borderLight}`, borderRight: isLeft ? `1px solid ${T.borderLight}` : "none" }}>
+                      <div style={{ fontSize: 10, fontWeight: 600, color: T.textSec, textTransform: "uppercase", marginBottom: 3 }}>{r.l}</div>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: r.v === dash ? T.textSec : T.navy, fontStyle: r.v === dash ? "italic" : "normal" }}>{r.v}</div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ) : (
+            <div style={{ padding: "18px 12px", textAlign: "center", color: T.textSec, fontSize: 12, fontStyle: "italic", borderRadius: 10, border: `1px dashed ${T.border}`, background: T.bg }}>
+              {it?"Nessun batch selezionato.":"No batch selected."}
+            </div>
+          )}
+        </div>);
+      }
+      return (<>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 16 }}>
         <Card title={_("envImpact")} iconD={ic.chart}><div style={{ padding: "16px 18px" }}><div style={{ fontSize: 12, color: T.textSec, marginBottom: 12 }}>Global Warming Potential by lifecycle stage</div>{(!hasAI || gwpStages.length) ? <><GWPChart data={hasAI ? gwpStages : undefined} /><div style={{ display: "flex", justifyContent: "space-between", marginTop: 12 }}><span style={{ fontSize: 12, color: T.textSec }}>Total GWP{hasAI ? "" : " (A1-D)"}</span><span style={{ fontSize: 16, fontWeight: 800, color: T.accentDark }}>{hasAI ? `${gwpTotal.toFixed(2)} kg CO₂eq` : "5.5 kg CO₂eq/m²"}</span></div></> : <div style={{ fontSize: 12, color: T.textSec, fontStyle: "italic", padding: "20px 0" }}>{it?"Nessun dato LCA estratto.":"No LCA data extracted."}</div>}</div></Card>
         <Card title={_("matComposition")} iconD={ic.layers}>{(!hasAI || donutSeg) ? <div style={{ padding: "16px 18px", display: "flex", alignItems: "center", gap: 20 }}><DonutChart seg={hasAI ? donutSeg : undefined} /><div>{(hasAI ? donutSeg : [{name:"XPS",p:92,c:T.accent},{name:"Additives",p:5,c:T.amber},{name:"Other",p:3,c:T.border}]).map((s,i)=>(<div key={i} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}><span style={{ width: 10, height: 10, borderRadius: "50%", background: s.c }} /><span style={{ fontSize: 13, color: T.textDark, maxWidth: 160, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.name}</span><span style={{ fontSize: 13, fontWeight: 700, color: T.accentDark }}>{s.p}%</span></div>))}</div></div> : <div style={{ padding: "16px 18px", fontSize: 12, color: T.textSec, fontStyle: "italic" }}>{it?"Nessuna composizione con percentuali.":"No composition percentages available."}</div>}</Card>
@@ -3573,6 +3708,7 @@ body{font-family:'Inter',sans-serif;color:#1E293B;font-size:12px;line-height:1.5
       </div>
       <SupplyMap dppData={product?.dppData} />
     </>);
+    }
     case "composizione": return (<ComponentiTab editMode={false} onNavigate={onNavigate} L={L} dppData={product?.dppData} product={product} onSave={onSave} onReloadProduct={onReloadProduct} />);
     case "prestazioni": {
       if (hasAI) {
