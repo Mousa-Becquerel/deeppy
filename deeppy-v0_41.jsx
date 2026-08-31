@@ -4433,7 +4433,7 @@ body{font-family:'Inter',sans-serif;color:#1E293B;font-size:12px;line-height:1.5
               <div style={{ flex: 1 }}><span style={{ fontSize: 11, fontWeight: 600, color: T.textDark }}>{projBatch}</span></div>
               <Badge color={T.accent} bg={T.accentSoft} style={{ fontSize: 9 }}>{it?"Nuovo":"New"}</Badge>
             </div>)}
-            {filteredSpecs.filter(s=>s.id!==selectedSpec).slice(0,5).map((s,i)=>(<div key={i} onClick={()=>setSelectedSpec(s.id)} style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 12px", borderRadius: 7, border: `1px solid ${T.borderLight}`, background: T.bg, cursor: "pointer", transition: "border-color 0.15s" }} onMouseEnter={e=>e.currentTarget.style.borderColor=T.accent} onMouseLeave={e=>e.currentTarget.style.borderColor=T.borderLight}>
+            {filteredSpecs.filter(s=>s.id!==selectedSpec).slice(0,5).map((s,i)=>(<div key={i} onClick={()=>{ setSelectedSpec(s.id); setSelectedBatchId(s.id); }} style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 12px", borderRadius: 7, border: `1px solid ${T.borderLight}`, background: T.bg, cursor: "pointer", transition: "border-color 0.15s" }} onMouseEnter={e=>e.currentTarget.style.borderColor=T.accent} onMouseLeave={e=>e.currentTarget.style.borderColor=T.borderLight}>
               <div style={{ width: 7, height: 7, borderRadius: "50%", background: s.pct===100?T.accent:T.amber }} />
               <div style={{ flex: 1 }}><span style={{ fontSize: 11, fontWeight: 600, color: T.textDark }}>{s.batch}</span> {s.ref && <span style={{ fontSize: 10, color: T.textSec }}>{s.ref}</span>}</div>
               <span style={{ fontSize: 10, color: T.textSec }}>{s.date}</span>
