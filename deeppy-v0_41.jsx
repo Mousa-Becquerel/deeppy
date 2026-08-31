@@ -1387,6 +1387,19 @@ function ComponentiTab({ editMode, onNavigate, L, dppData, blankShell = false, p
   const [availability, setAvailability] = useState({});          // { child_batch_uuid → {available, consumed, remaining, unit} }
   const [linkSaving, setLinkSaving] = useState(false);
   const [linkError, setLinkError] = useState(null);
+  // Client feedback (Aug 31): a passive green/red pill on each row wasn't
+  // enough — they want an ACTIVE alert popup when the user picks a supplier
+  // batch (so they immediately know the remaining stock) and again if they
+  // type a required quantity that exceeds it. Toast state carries the
+  // message plus a "tone" (ok / warn) that drives the colour palette.
+  const [toast, setToast] = useState(null);        // { id, tone, title, body }
+  const showToast = (payload) => {
+    const id = Date.now() + Math.random();
+    setToast({ ...payload, id });
+    // Auto-dismiss after ~6s, but only if this specific toast is still on
+    // screen — avoids stomping a newer one that came in during the wait.
+    setTimeout(() => setToast(prev => (prev && prev.id === id) ? null : prev), 6000);
+  };
 
   // Load the company's batches once when the picker opens; refresh if the
   // filter toggles. The list endpoint already carries family_code + parent
@@ -1454,16 +1467,50 @@ function ComponentiTab({ editMode, onNavigate, L, dppData, blankShell = false, p
   };
 
   const applyBatchLink = (materialId, childBatch) => {
+    const alreadyRequired = batchLinks[materialId]?.required_quantity ?? null;
     const next = { ...batchLinks, [materialId]: {
       linked_batch_uuid: childBatch.id,
       linked_batch_public_id: childBatch.public_id,
       linked_batch_label: childBatch.lot || childBatch.parent_product_name || childBatch.id.slice(0, 8),
-      required_quantity: batchLinks[materialId]?.required_quantity ?? null,
+      required_quantity: alreadyRequired,
       required_unit: childBatch.available_unit || batchLinks[materialId]?.required_unit || "",
     } };
     setBatchLinks(next);
     setPickerFor(null);
     saveBatchLinks(next);
+    // Client feedback (Aug 31): the moment they select a supplier batch we
+    // surface an alert with the availability. If they'd already typed a
+    // required quantity on this row that exceeds what's left, warn straight
+    // away; otherwise just confirm the pick + inform the current remaining.
+    const remaining = childBatch.remaining_quantity;
+    const total = childBatch.available_quantity;
+    const unit = childBatch.available_unit || "";
+    const label = childBatch.lot || childBatch.parent_product_name || (it ? "Batch" : "Batch");
+    if (total == null) {
+      showToast({
+        tone: "warn",
+        title: it ? "Quantità del batch non impostata" : "Batch quantity not set",
+        body: it
+          ? `Il batch fornitore "${label}" non ha ancora una quantità disponibile dichiarata — non è possibile verificare la disponibilità.`
+          : `The supplier batch "${label}" has no available quantity declared yet — availability can't be checked.`,
+      });
+    } else if (alreadyRequired != null && remaining != null && alreadyRequired > remaining) {
+      showToast({
+        tone: "warn",
+        title: it ? "Quantità non sufficiente" : "Not enough available",
+        body: it
+          ? `"${label}": necessari ${alreadyRequired} ${unit}, rimanenti ${remaining} ${unit} (totale ${total} ${unit}).`
+          : `"${label}": you need ${alreadyRequired} ${unit}, only ${remaining} ${unit} remaining (total ${total} ${unit}).`,
+      });
+    } else {
+      showToast({
+        tone: "ok",
+        title: it ? "Batch collegato" : "Batch linked",
+        body: it
+          ? `"${label}": ${remaining ?? "?"} ${unit} disponibili (su ${total} ${unit} totali).`
+          : `"${label}": ${remaining ?? "?"} ${unit} available (of ${total} ${unit} total).`,
+      });
+    }
   };
   const clearBatchLink = (materialId) => {
     const next = { ...batchLinks };
@@ -1477,12 +1524,45 @@ function ComponentiTab({ editMode, onNavigate, L, dppData, blankShell = false, p
     const n = qty === "" || qty == null ? null : Number(qty);
     const next = { ...batchLinks, [materialId]: { ...link, required_quantity: Number.isFinite(n) ? n : null } };
     setBatchLinks(next);
+    // Client feedback (Aug 31): if the number they just typed exceeds what
+    // remains in the linked child batch, pop an alert immediately — not just
+    // the passive red pill on the row.
+    const avail = link.linked_batch_uuid ? availability[link.linked_batch_uuid] : null;
+    const remaining = avail?.remaining_quantity;
+    if (Number.isFinite(n) && n > 0 && remaining != null && n > remaining) {
+      const unit = link.required_unit || avail?.available_unit || "";
+      const label = link.linked_batch_label || (it ? "Batch" : "Batch");
+      showToast({
+        tone: "warn",
+        title: it ? "Quantità non sufficiente" : "Not enough available",
+        body: it
+          ? `"${label}": necessari ${n} ${unit}, rimanenti ${remaining} ${unit}.`
+          : `"${label}": you need ${n} ${unit}, only ${remaining} ${unit} remaining.`,
+      });
+    }
     // Debounce would be nicer; for MVP save on every commit (blur / enter).
     saveBatchLinks(next);
   };
 
   return (
     <div>
+      {/* Availability toast — fixed bottom-right, above everything. Auto-
+          dismisses after ~6s or on click of the X. Colour palette flips
+          between accent (ok) and red (warn) to match the row pills. */}
+      {toast && (
+        <div style={{ position: "fixed", right: 24, bottom: 24, zIndex: 2000, maxWidth: 380, minWidth: 280, padding: "12px 14px", borderRadius: 10, background: T.bg, border: `1px solid ${toast.tone === "warn" ? T.red : T.accent}`, boxShadow: "0 16px 40px rgba(0,0,0,0.18)", display: "flex", gap: 10, alignItems: "flex-start", animation: "none" }}>
+          <div style={{ width: 26, height: 26, borderRadius: 6, flexShrink: 0, background: toast.tone === "warn" ? (T.redSoft || "#FEE2E2") : T.accentSoft, display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <I d={toast.tone === "warn" ? ic.alert : ic.check} size={14} color={toast.tone === "warn" ? T.red : T.accentDark} />
+          </div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 12, fontWeight: 800, color: toast.tone === "warn" ? T.red : T.navy, marginBottom: 3 }}>{toast.title}</div>
+            <div style={{ fontSize: 11.5, color: T.textSec, lineHeight: 1.45 }}>{toast.body}</div>
+          </div>
+          <button onClick={() => setToast(null)} title={it?"Chiudi":"Dismiss"} style={{ background: "none", border: "none", cursor: "pointer", padding: 2, color: T.textSec }}>
+            <I d={ic.x} size={14} color={T.textSec} />
+          </button>
+        </div>
+      )}
       <div style={{ background: T.bg, borderRadius: 10, border: `1px solid ${T.border}`, overflow: "hidden", marginBottom: 16 }}>
         <div style={{ padding: "14px 18px", borderBottom: `1px solid ${T.borderLight}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
