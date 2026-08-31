@@ -24,7 +24,10 @@ import sqlalchemy as sa
 
 
 revision: str = 'a1c9d7e2f4b0'
-down_revision: Union[str, None] = 'ea3ad743d8c1'
+# Linearize on top of audit_log (3b9f1c2d4e80), the actual current head on
+# prod. Picked ea3ad743d8c1 initially — that was the parent of audit_log,
+# which would have created a two-headed graph and blocked `alembic upgrade`.
+down_revision: Union[str, None] = '3b9f1c2d4e80'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
