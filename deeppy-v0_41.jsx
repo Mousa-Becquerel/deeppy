@@ -1709,16 +1709,17 @@ function ComponentiTab({ editMode, onNavigate, L, dppData, blankShell = false, p
                       <span style={{ color: T.textSec }}>·</span>
                       <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
                         <span style={{ color: T.textSec }}>{it ? "Richiesta:" : "Required:"}</span>
-                        {editMode ? (
-                          <input
-                            type="number" step="0.01" min="0"
-                            defaultValue={link.required_quantity ?? ""}
-                            onBlur={e => setRequiredQty(c.id, e.target.value)}
-                            onKeyDown={e => { if (e.key === "Enter") e.currentTarget.blur(); }}
-                            style={{ width: 70, padding: "3px 6px", borderRadius: 4, border: `1px solid ${T.border}`, fontSize: 11, fontFamily: font, outline: "none" }} />
-                        ) : (
-                          <span style={{ fontWeight: 700, color: T.textDark }}>{required ?? "—"}</span>
-                        )}
+                        {/* Batch-linking is scoped to batch.overrides — it
+                            never touches the parent MODEL's composition, so
+                            we allow edits here regardless of the outer
+                            view's editMode. Same applies to the Change /
+                            Unlink / Link buttons below. */}
+                        <input
+                          type="number" step="0.01" min="0"
+                          defaultValue={link.required_quantity ?? ""}
+                          onBlur={e => setRequiredQty(c.id, e.target.value)}
+                          onKeyDown={e => { if (e.key === "Enter") e.currentTarget.blur(); }}
+                          style={{ width: 70, padding: "3px 6px", borderRadius: 4, border: `1px solid ${T.border}`, fontSize: 11, fontFamily: font, outline: "none" }} />
                         <span style={{ fontWeight: 700, color: T.textDark }}>{link.required_unit || avail?.available_unit || ""}</span>
                       </span>
                       {avail && (
@@ -1739,21 +1740,15 @@ function ComponentiTab({ editMode, onNavigate, L, dppData, blankShell = false, p
                           {it?"OK":"OK"}
                         </span>
                       )}
-                      {editMode && (
-                        <div style={{ marginLeft: "auto", display: "flex", gap: 4 }}>
-                          <button onClick={() => setPickerFor(c.id)} title={it?"Cambia batch":"Change batch"} style={{ background: "none", border: `1px solid ${T.border}`, borderRadius: 4, padding: "3px 8px", cursor: "pointer", fontFamily: font, fontSize: 10, color: T.textSec }}><I d={ic.edit} size={10} color={T.textSec} /> {it?"Cambia":"Change"}</button>
-                          <button onClick={() => clearBatchLink(c.id)} title={it?"Rimuovi collegamento":"Unlink"} style={{ background: "none", border: `1px solid ${T.border}`, borderRadius: 4, padding: "3px 8px", cursor: "pointer", fontFamily: font, fontSize: 10, color: T.textSec }}><I d={ic.x} size={10} color={T.textSec} /></button>
-                        </div>
-                      )}
+                      <div style={{ marginLeft: "auto", display: "flex", gap: 4 }}>
+                        <button onClick={() => setPickerFor(c.id)} title={it?"Cambia batch":"Change batch"} style={{ background: "none", border: `1px solid ${T.border}`, borderRadius: 4, padding: "3px 8px", cursor: "pointer", fontFamily: font, fontSize: 10, color: T.textSec }}><I d={ic.edit} size={10} color={T.textSec} /> {it?"Cambia":"Change"}</button>
+                        <button onClick={() => clearBatchLink(c.id)} title={it?"Rimuovi collegamento":"Unlink"} style={{ background: "none", border: `1px solid ${T.border}`, borderRadius: 4, padding: "3px 8px", cursor: "pointer", fontFamily: font, fontSize: 10, color: T.textSec }}><I d={ic.x} size={10} color={T.textSec} /></button>
+                      </div>
                     </>) : (
-                      editMode ? (
-                        <button onClick={() => setPickerFor(c.id)} style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "4px 10px", borderRadius: 5, border: `1px dashed ${T.accent}`, background: "transparent", cursor: "pointer", fontFamily: font, fontSize: 11, fontWeight: 600, color: T.accentDark }}>
-                          <I d={ic.plus} size={10} color={T.accentDark} />
-                          {it?"Collega a un batch fornitore":"Link to a supplier batch"}
-                        </button>
-                      ) : (
-                        <span style={{ color: T.textSec, fontStyle: "italic" }}>{it?"Non collegato a un batch":"Not linked to a batch"}</span>
-                      )
+                      <button onClick={() => setPickerFor(c.id)} style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "4px 10px", borderRadius: 5, border: `1px dashed ${T.accent}`, background: "transparent", cursor: "pointer", fontFamily: font, fontSize: 11, fontWeight: 600, color: T.accentDark }}>
+                        <I d={ic.plus} size={10} color={T.accentDark} />
+                        {it?"Collega a un batch fornitore":"Link to a supplier batch"}
+                      </button>
                     )}
                   </div>
                 );
