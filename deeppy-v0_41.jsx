@@ -560,113 +560,78 @@ const FAMILY_LABELS = {
   AGG: "Aggregates",
 };
 
-// Doc #3: EU funding disclaimer. Modernised card in the sidebar footer —
-// the collapsed state already carries meaningful content (EU flag emblem
-// + grant agreement IDs preview) so the user doesn't have to expand it
-// to know what it says. Click to open a popover with the full sentence
-// and a "More info" link back to https://deeppy.eu/agrobuilder. Palette
-// uses the official EU colours (deep blue #003399 + gold #FFCC00) so it
-// reads instantly as an EU compliance element, not just another sidebar
-// chip.
+// Doc #3: EU funding disclaimer. Sits in the sidebar footer, adopts the
+// same visual language as the other sidebar controls (transparent bg,
+// T.navyMid border, muted text, mint accent). Collapsed state already
+// carries meaningful content — a small "EU" tag + the two Grant Agreement
+// IDs so the user can cite them without expanding. Click opens a popover
+// with the full sentence and the "More info" link.
 function EuFundingDisclaimer({ L }) {
   const it = L?.lang === "it";
   const [open, setOpen] = useState(false);
-  const EU_BLUE = "#003399";
-  const EU_BLUE_LIGHT = "#0b2f78";
-  const EU_GOLD = "#FFCC00";
-  // Ring of 12 stars around the emblem — the official EU flag pattern in
-  // miniature. Renders crisply at any zoom (pure SVG), and doesn't depend
-  // on the OS emoji font for the 🇪🇺 flag (Windows renders it as "EU"
-  // letters which looks poor on the dark sidebar background).
-  const EmblemStars = ({ size = 28 }) => {
-    const r = size * 0.36;
-    const cx = size / 2;
-    const cy = size / 2;
-    const stars = [];
-    for (let i = 0; i < 12; i++) {
-      const a = (i * Math.PI * 2) / 12 - Math.PI / 2;
-      const x = cx + Math.cos(a) * r;
-      const y = cy + Math.sin(a) * r;
-      stars.push(
-        <circle key={i} cx={x} cy={y} r={size * 0.05} fill={EU_GOLD} />
-      );
-    }
-    return (
-      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} aria-hidden>
-        <rect width={size} height={size} rx={size * 0.2} fill={EU_BLUE} />
-        {stars}
-      </svg>
-    );
-  };
   return (
     <div style={{ padding: "8px 12px 0", position: "relative" }}>
       <button
         onClick={() => setOpen(v => !v)}
         title={it ? "Finanziato dall'Unione Europea" : "Funded by the European Union"}
         style={{
-          display: "block", width: "100%", padding: "10px 12px",
-          borderRadius: 8,
-          border: `1px solid ${open ? EU_GOLD : "rgba(255,204,0,0.25)"}`,
-          background: `linear-gradient(135deg, ${EU_BLUE} 0%, ${EU_BLUE_LIGHT} 100%)`,
-          boxShadow: open ? `0 4px 14px rgba(0,51,153,0.45)` : "0 1px 3px rgba(0,0,0,0.2)",
+          display: "block", width: "100%",
+          padding: "7px 10px",
+          borderRadius: 5,
+          border: `1px solid ${T.navyMid}`,
+          background: open ? T.navyLight : "transparent",
           cursor: "pointer", fontFamily: font, textAlign: "left",
-          transition: "border-color .15s, box-shadow .15s",
+          transition: "background .15s",
         }}
       >
-        <div style={{ display: "flex", alignItems: "center", gap: 9, marginBottom: 6 }}>
-          <EmblemStars size={26} />
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: 9, fontWeight: 700, color: EU_GOLD, letterSpacing: "0.08em", textTransform: "uppercase", lineHeight: 1 }}>
-              {it ? "Finanziato da" : "Funded by"}
-            </div>
-            <div style={{ fontSize: 12, fontWeight: 700, color: "#ffffff", lineHeight: 1.25, marginTop: 2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-              {it ? "Unione Europea" : "European Union"}
-            </div>
-          </div>
-          <I d={ic.chevRight} size={10} color="rgba(255,255,255,0.55)" style={{ transform: open ? "rotate(90deg)" : "none", transition: "transform .15s", flexShrink: 0 }} />
+        <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
+          <span style={{
+            fontSize: 9, fontWeight: 800, letterSpacing: "0.08em",
+            padding: "2px 5px", borderRadius: 3,
+            color: T.accent,
+            border: `1px solid ${T.navyMid}`,
+            background: T.navy,
+          }}>EU</span>
+          <span style={{ flex: 1, minWidth: 0, fontSize: 11, color: T.textMuted, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+            {it ? "Progetto finanziato" : "Funded project"}
+          </span>
+          <I d={ic.chevRight} size={9} color={T.textMuted} style={{ transform: open ? "rotate(90deg)" : "none", transition: "transform .15s", flexShrink: 0, opacity: 0.7 }} />
         </div>
-        {/* Grant IDs previewed inline so the collapsed card already tells the
-            user what they need to know — click just gets the full sentence
-            and the "More info" link. */}
+        {/* Grant IDs shown by default — the collapsed card already tells
+            the user what they need to cite; expand for the full sentence
+            and the More-info link. */}
         <div style={{
           fontSize: 9,
-          color: "rgba(255,255,255,0.72)",
+          color: T.textMuted,
+          opacity: 0.55,
           fontFamily: "'JetBrains Mono','SF Mono',monospace",
           letterSpacing: "0.02em",
-          borderTop: "1px solid rgba(255,204,0,0.15)",
-          paddingTop: 5,
-          marginTop: 2,
-          display: "flex",
-          gap: 8,
-          justifyContent: "space-between",
+          marginTop: 5,
         }}>
-          <span>GA 101136597</span>
-          <span style={{ color: "rgba(255,255,255,0.35)" }}>·</span>
-          <span>GA 101091494</span>
+          GA 101136597 · 101091494
         </div>
       </button>
       {open && (
-        <div style={{ position: "absolute", left: "calc(100% + 8px)", bottom: 0, width: 340, padding: "14px 16px", borderRadius: 10, background: T.bg, border: `1px solid ${T.border}`, boxShadow: "0 16px 40px rgba(0,0,0,0.25)", zIndex: 100, color: T.textDark }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
-            <EmblemStars size={30} />
-            <div>
-              <div style={{ fontSize: 9, fontWeight: 700, color: T.textSec, letterSpacing: "0.08em", textTransform: "uppercase" }}>
-                {it ? "Progetto finanziato" : "Funded project"}
-              </div>
-              <div style={{ fontSize: 13, fontWeight: 800, color: T.navy, marginTop: 1 }}>
-                {it ? "Unione Europea" : "European Union"}
-              </div>
-            </div>
+        <div style={{ position: "absolute", left: "calc(100% + 8px)", bottom: 0, width: 320, padding: "14px 16px", borderRadius: 8, background: T.bg, border: `1px solid ${T.border}`, boxShadow: "0 12px 32px rgba(0,0,0,0.18)", zIndex: 100, color: T.textDark }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+            <span style={{
+              fontSize: 10, fontWeight: 800, letterSpacing: "0.08em",
+              padding: "3px 7px", borderRadius: 4,
+              color: T.accentDark, background: T.accentSoft, border: `1px solid ${T.accent}30`,
+            }}>EU</span>
+            <span style={{ fontSize: 12, fontWeight: 700, color: T.navy, letterSpacing: "0.02em" }}>
+              {it ? "Progetto finanziato" : "Funded project"}
+            </span>
           </div>
           <div style={{ fontSize: 11.5, color: T.textSec, lineHeight: 1.55, marginBottom: 12 }}>
             {it
               ? "Il progetto ha ricevuto finanziamenti dall'Unione Europea nell'ambito degli accordi di sovvenzione:"
               : "This project received funding from the European Union under Grant Agreements:"}
           </div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 12 }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 5, marginBottom: 12 }}>
             {["101136597", "101091494"].map(ga => (
-              <div key={ga} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 10px", borderRadius: 6, background: T.bgSoft, border: `1px solid ${T.borderLight}` }}>
-                <span style={{ fontSize: 9, fontWeight: 700, color: EU_BLUE, letterSpacing: "0.05em" }}>GA</span>
+              <div key={ga} style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 10px", borderRadius: 5, background: T.bgSoft, border: `1px solid ${T.borderLight}` }}>
+                <span style={{ fontSize: 9, fontWeight: 700, color: T.textSec, letterSpacing: "0.05em" }}>GA</span>
                 <span style={{ flex: 1, fontSize: 12, fontWeight: 600, color: T.textDark, fontFamily: "'JetBrains Mono','SF Mono',monospace" }}>{ga}</span>
               </div>
             ))}
@@ -675,10 +640,10 @@ function EuFundingDisclaimer({ L }) {
             href="https://deeppy.eu/agrobuilder"
             target="_blank"
             rel="noopener noreferrer"
-            style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 5, padding: "8px 12px", borderRadius: 6, background: `linear-gradient(135deg, ${EU_BLUE} 0%, ${EU_BLUE_LIGHT} 100%)`, color: "#fff", fontSize: 11, fontWeight: 700, textDecoration: "none", fontFamily: font, border: `1px solid ${EU_GOLD}` }}
+            style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 4, padding: "7px 12px", borderRadius: 5, background: T.accentSoft, color: T.accentDark, fontSize: 11, fontWeight: 700, textDecoration: "none", fontFamily: font, border: `1px solid ${T.accent}` }}
           >
             {it ? "Maggiori informazioni" : "More info"}
-            <I d={ic.arrow} size={11} color={EU_GOLD} />
+            <I d={ic.arrow} size={11} color={T.accentDark} />
           </a>
         </div>
       )}
