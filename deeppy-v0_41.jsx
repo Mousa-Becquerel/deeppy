@@ -3591,30 +3591,14 @@ function AppView({ onNavigate, L, product, onAddProjectDPP, onPublish, onReloadP
   const [batchQtyDraft, setBatchQtyDraft] = useState({ value: "", unit: "" });
   const [batchQtySaving, setBatchQtySaving] = useState(false);
   const [batchQtyError, setBatchQtyError] = useState(null);
-  // Bug fix: prime the draft when the modal opens (proper effect instead of
-  // setState-during-render inside the modal's IIFE, which risked "Too many
-  // re-renders"). Clears when modal closes so re-open re-primes cleanly.
-  //
-  // TDZ note: `currentBatch` is a `const` declared ~460 lines below in the
-  // same function. Reading it in the deps array here — which React evaluates
-  // during render, BEFORE that `const` is initialised — throws a
-  // "Cannot access X before initialization" and takes the whole AppView
-  // down to a blank screen. `selectedBatchId` is declared much earlier and
-  // is the actual driver of what currentBatch resolves to, so it's the
-  // right dep to use. Inside the callback (which runs POST-render),
-  // currentBatch is fully initialised and safe to read.
-  useEffect(() => {
-    if (editingBatchQty && currentBatch) {
-      setBatchQtyDraft({
-        value: currentBatch.availableQuantity != null ? String(currentBatch.availableQuantity) : "",
-        unit: currentBatch.availableUnit || "",
-      });
-      setBatchQtyError(null);
-    } else if (!editingBatchQty) {
-      setBatchQtyDraft({ value: "", unit: "" });
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [editingBatchQty, selectedBatchId]);
+  // Prime-on-open effect for the batch-quantity modal is defined LATER,
+  // after currentBatch is declared. See the useEffect near line ~4080.
+  // Placed here previously caused a TDZ: this file has both selectedBatchId
+  // and currentBatch declared ~440-460 lines below, so a deps array
+  // referencing either would read them in the temporal dead zone and blank
+  // the whole AppView. Moving the effect below their declarations is the
+  // only safe fix — using a dep pointing at a not-yet-initialised const
+  // throws even with optional chaining.
   const saveBatchQty = async (batchId, value, unit) => {
     if (!batchId) return;
     setBatchQtySaving(true); setBatchQtyError(null);
@@ -4078,6 +4062,24 @@ body{font-family:'Inter',sans-serif;color:#1E293B;font-size:12px;line-height:1.5
   const currentBatch = perenneData.batches.find(b => b.id === selectedBatchId);
   const currentItem = allItems.find(i => i.id === selectedItemId);
   const levelLabel = dppLevel === "model" ? "Model" : dppLevel === "batch" ? "Batch" : "Item";
+
+  // Bug fix (hotfix ec7e18a follow-up): prime the batch-quantity draft when
+  // the modal opens. Lives HERE — after currentBatch is initialised — so the
+  // deps array can safely read currentBatch?.id. Placing this effect above
+  // the currentBatch declaration triggers a TDZ that blanks AppView on any
+  // product open (React evaluates the deps array during render, before
+  // late-declared consts have run). See comment near the state hooks above.
+  useEffect(() => {
+    if (editingBatchQty && currentBatch) {
+      setBatchQtyDraft({
+        value: currentBatch.availableQuantity != null ? String(currentBatch.availableQuantity) : "",
+        unit: currentBatch.availableUnit || "",
+      });
+      setBatchQtyError(null);
+    } else if (!editingBatchQty) {
+      setBatchQtyDraft({ value: "", unit: "" });
+    }
+  }, [editingBatchQty, currentBatch?.id]);
 
   // Doc #6: BATCH DPP is logistics (a production lot), not a spec sheet — it
   // inherits Performance/Compliance/Lifecycle from its parent MODEL. Strip
