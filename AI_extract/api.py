@@ -112,6 +112,23 @@ class BatchCreate(BaseModel):
     production_date: Optional[str] = None
     notes: Optional[str] = None
     overrides: Optional[dict] = None
+    # Bucket 7 batch accounting: the real total quantity this batch produced,
+    # in a chosen unit. Parent batches compare their required_quantity for
+    # this batch against (available_quantity - consumed) to alert on shortfall.
+    available_quantity: Optional[float] = None
+    available_unit: Optional[str] = None
+
+
+class BatchUpdate(BaseModel):
+    """Editable batch fields. Send only what you want to change."""
+    lot: Optional[str] = None
+    site: Optional[str] = None
+    ref: Optional[str] = None
+    production_date: Optional[str] = None
+    notes: Optional[str] = None
+    overrides: Optional[dict] = None
+    available_quantity: Optional[float] = None
+    available_unit: Optional[str] = None
 
 
 class ItemCreate(BaseModel):
@@ -274,6 +291,8 @@ async def health():
 def _product_summary(p) -> dict:
     return {
         "id": p.id,
+        # Bucket 7: incremental public ID for DPP-M-{id} display + public URL.
+        "public_id": p.public_id,
         "name": p.name,
         "manufacturer": p.manufacturer_name,
         "family_code": p.family_code,
@@ -286,7 +305,7 @@ def _product_summary(p) -> dict:
 
 def _item_detail(it) -> dict:
     return {
-        "id": it.id, "batch_id": it.batch_id,
+        "id": it.id, "public_id": it.public_id, "batch_id": it.batch_id,
         "serial_number": it.serial_number, "dimensions": it.dimensions,
         "weight": it.weight, "destination": it.destination,
         "production_date": it.production_date, "overrides": it.overrides,
@@ -296,10 +315,14 @@ def _item_detail(it) -> dict:
 
 def _batch_detail(b) -> dict:
     return {
-        "id": b.id, "product_id": b.product_id,
+        "id": b.id, "public_id": b.public_id, "product_id": b.product_id,
         "lot": b.lot, "site": b.site, "ref": b.ref,
         "production_date": b.production_date, "notes": b.notes,
         "overrides": b.overrides,
+        # Bucket 7 batch accounting: real total-quantity of this batch, used
+        # by parent-batch availability checks. May be None until user sets it.
+        "available_quantity": b.available_quantity,
+        "available_unit": b.available_unit,
         "created_at": b.created_at.isoformat() if b.created_at else None,
         "items": [_item_detail(it) for it in b.items],
     }
@@ -1104,7 +1127,9 @@ async def post_chat(product_id: str, body: ChatRequest, user: dict = Depends(get
 @app.post("/api/products/{product_id}/batches")
 async def create_batch(product_id: str, body: BatchCreate,
                        user: dict = Depends(require_role("admin", "editor"))):
-    """Create a production batch (Project DPP) under a product (editor/admin)."""
+    """Create a production batch (Project DPP) under a product (editor/admin).
+    Bucket 7: parent MODEL is required — enforced by URL scoping; the client
+    can only POST here after selecting a product in the onboard-batch flow."""
     with session_scope() as db:
         if not _owned_product(db, product_id, user["company_id"]):
             raise HTTPException(404, "Product not found")
@@ -1113,8 +1138,88 @@ async def create_batch(product_id: str, body: BatchCreate,
             lot=body.lot, site=body.site, ref=body.ref,
             production_date=body.production_date, notes=body.notes,
             overrides=body.overrides or {},
+            available_quantity=body.available_quantity,
+            available_unit=body.available_unit,
         )
         return _batch_detail(batch)
+
+
+@app.patch("/api/batches/{batch_id}")
+async def update_batch(batch_id: str, body: BatchUpdate,
+                       user: dict = Depends(require_role("admin", "editor"))):
+    """Edit an existing batch (quantity, site, dates, overrides). Same
+    ownership guard as create — batch belongs to the caller's company via
+    its parent product."""
+    with session_scope() as db:
+        batch = repo.get_batch(db, batch_id)
+        if not batch or not _owned_product(db, batch.product_id, user["company_id"]):
+            raise HTTPException(404, "Batch not found")
+        for field in ("lot", "site", "ref", "production_date", "notes",
+                      "available_quantity", "available_unit"):
+            v = getattr(body, field)
+            if v is not None:
+                setattr(batch, field, v)
+        if body.overrides is not None:
+            batch.overrides = body.overrides
+        db.flush()
+        return _batch_detail(batch)
+
+
+@app.get("/api/batches")
+async def list_batches(family_code: Optional[str] = None,
+                       user: dict = Depends(get_current_user)):
+    """Bucket 7: list this company's batches — used by the BATCH composition
+    picker to link a row to a supplier BATCH DPP. Optional `family_code`
+    query filters to batches whose parent MODEL matches (client picks
+    Option A — all batches, with a pre-applied family filter chip)."""
+    with session_scope() as db:
+        rows = repo.list_batches(db, company_id=user["company_id"], family_code=family_code)
+        # Include the parent product's name + family so the picker UI has
+        # enough context to show meaningful list rows.
+        product_ids = {b.product_id for b in rows}
+        products = {
+            p.id: p for p in db.query(db_models.Product)
+                             .filter(db_models.Product.id.in_(product_ids))
+                             .all()
+        } if product_ids else {}
+        out = []
+        for b in rows:
+            p = products.get(b.product_id)
+            d = _batch_detail(b)
+            d["parent_product_name"] = p.name if p else None
+            d["parent_family_code"] = p.family_code if p else None
+            # Live-computed consumption sum + remaining, saves the client
+            # a second round-trip in the common list-and-check case.
+            consumed = repo.batch_consumed_quantity(db, b.id)
+            d["consumed_quantity"] = consumed
+            d["remaining_quantity"] = (
+                (b.available_quantity - consumed) if b.available_quantity is not None else None
+            )
+            out.append(d)
+        return out
+
+
+@app.get("/api/batches/{batch_id}/availability")
+async def batch_availability(batch_id: str, user: dict = Depends(get_current_user)):
+    """Live availability check for one batch — what's the total quantity,
+    how much have parent batches already claimed, how much is left?
+    Used by the BATCH composition picker to show a red badge when a parent's
+    required amount exceeds the child's remaining."""
+    with session_scope() as db:
+        batch = repo.get_batch(db, batch_id)
+        if not batch or not _owned_product(db, batch.product_id, user["company_id"]):
+            raise HTTPException(404, "Batch not found")
+        consumed = repo.batch_consumed_quantity(db, batch_id)
+        return {
+            "batch_id": batch.id,
+            "public_id": batch.public_id,
+            "available_quantity": batch.available_quantity,
+            "available_unit": batch.available_unit,
+            "consumed_quantity": consumed,
+            "remaining_quantity": (
+                (batch.available_quantity - consumed) if batch.available_quantity is not None else None
+            ),
+        }
 
 
 @app.post("/api/batches/{batch_id}/items")

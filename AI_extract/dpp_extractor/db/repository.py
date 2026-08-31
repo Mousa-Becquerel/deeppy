@@ -260,6 +260,16 @@ def update_company(db: Session, company_id: str, **fields) -> Optional[models.Co
 
 # ── Product ─────────────────────────────────────────────────────────────--
 
+def _next_public_id(db: Session, table) -> int:
+    """Bucket 7: allocate the next incremental public_id for a table.
+    Simple MAX+1 pattern — safe on SQLite (single writer) and works on
+    Postgres too. Called by create_product/create_batch/create_item.
+    """
+    from sqlalchemy import func
+    current = db.query(func.coalesce(func.max(table.public_id), 0)).scalar()
+    return int(current) + 1
+
+
 def create_product(
     db: Session,
     passport: dict,
@@ -275,6 +285,7 @@ def create_product(
         completeness=round(completeness or 0.0, 1),
         passport=passport,
         source_documents=source_documents or [],
+        public_id=_next_public_id(db, models.Product),
         **hot,
     )
     db.add(product)
@@ -448,7 +459,11 @@ def get_job(db: Session, job_id: str) -> Optional[models.ExtractionJob]:
 # ── Batches & Items ───────────────────────────────────────────────────────
 
 def create_batch(db: Session, product_id: str, **fields) -> models.Batch:
-    batch = models.Batch(product_id=product_id, **fields)
+    batch = models.Batch(
+        product_id=product_id,
+        public_id=_next_public_id(db, models.Batch),
+        **fields,
+    )
     db.add(batch)
     db.flush()
     return batch
@@ -458,8 +473,53 @@ def get_batch(db: Session, batch_id: str) -> Optional[models.Batch]:
     return db.get(models.Batch, batch_id)
 
 
+def list_batches(
+    db: Session, company_id: Optional[str] = None, family_code: Optional[str] = None,
+) -> list[models.Batch]:
+    """Bucket 7: list batches for the composition-picker on parent BATCHes.
+    Filtered by company by default (Option A with family-code pre-filter,
+    both applied server-side). Joined against Product for the family filter."""
+    stmt = select(models.Batch).order_by(models.Batch.created_at.desc())
+    if company_id or family_code:
+        stmt = stmt.join(models.Product, models.Batch.product_id == models.Product.id)
+        if company_id:
+            stmt = stmt.where(models.Product.company_id == company_id)
+        if family_code:
+            stmt = stmt.where(models.Product.family_code == family_code)
+    return list(db.scalars(stmt))
+
+
+def batch_consumed_quantity(db: Session, batch_id: str) -> float:
+    """Sum of `required_quantity` across every material row on every OTHER
+    batch that linked to this one. Live-compute — client's chosen model, so
+    edits anywhere refresh availability without bookkeeping. Cheap enough
+    (linear scan over batches; can add an index or denormalise if it hurts)."""
+    total = 0.0
+    stmt = select(models.Batch).where(models.Batch.id != batch_id)
+    for other in db.scalars(stmt):
+        overrides = other.overrides or {}
+        materials = ((overrides.get("composition") or {}).get("materials")) or []
+        if not isinstance(materials, list):
+            continue
+        for m in materials:
+            if not isinstance(m, dict):
+                continue
+            if m.get("linked_batch_uuid") != batch_id:
+                continue
+            try:
+                q = float(m.get("required_quantity") or 0)
+            except (TypeError, ValueError):
+                q = 0.0
+            total += q
+    return total
+
+
 def create_item(db: Session, batch_id: str, **fields) -> models.Item:
-    item = models.Item(batch_id=batch_id, **fields)
+    item = models.Item(
+        batch_id=batch_id,
+        public_id=_next_public_id(db, models.Item),
+        **fields,
+    )
     db.add(item)
     db.flush()
     return item

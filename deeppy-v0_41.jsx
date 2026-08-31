@@ -502,6 +502,21 @@ function SupplyMap({ dppData }) {
 // keep "all" as a special key meaning no filter.
 const CATALOG_ALL_KEY = "all";
 
+// Bucket 7 / Tier D — prefixed display IDs. Client spec: DPP-M-0001 for
+// models, DPP-B-0007 for batches, DPP-I-0042 for items, 4-digit zero pad.
+// The integer comes from the backend's incremental `public_id`; falls back
+// to a short slice of the UUID when public_id isn't populated yet (legacy
+// rows, unmigrated fixtures).
+const _LEVEL_PREFIX = { model: "DPP-M", batch: "DPP-B", item: "DPP-I" };
+function dppId(level, publicId, fallbackUuid = null) {
+  const prefix = _LEVEL_PREFIX[level] || "DPP";
+  if (publicId != null && publicId !== "") {
+    return `${prefix}-${String(publicId).padStart(4, "0")}`;
+  }
+  if (fallbackUuid) return `${prefix}-${String(fallbackUuid).slice(0, 8)}`;
+  return prefix;
+}
+
 // Bucket 6: full descriptive names for the CPR family codes shown as
 // 3-letter chips in the catalog filter row. Used as the tooltip so a
 // human hovering can actually read what "PTA" or "CMG" means. Codes
@@ -896,7 +911,7 @@ function SignupPage({ onNavigate, L, onAuth }) {
 }
 
 // ─── ONBOARDING ──────────────────────────────────────────
-function OnboardingUpload({ onNavigate, L, onExtracted, presetType = null }) {
+function OnboardingUpload({ onNavigate, L, onExtracted, presetType = null, onSelectParent = null }) {
   const _ = k => t(k, L?.lang);
   const [files, setFiles] = useState([]);
   const [processing, setProcessing] = useState(false);
@@ -908,6 +923,25 @@ function OnboardingUpload({ onNavigate, L, onExtracted, presetType = null }) {
   const [websiteUrl, setWebsiteUrl] = useState("");
   const [dppType, setDppType] = useState(presetType); // null | "model" | "batch" | "item"
   const fileInputRef = useRef(null);
+
+  // Doc #5: a BATCH DPP must be linked to an existing MODEL; an ITEM to
+  // a BATCH. `parentId` is the UUID of the required parent record and is
+  // gated in front of the upload/manual choice for those levels.
+  const [parents, setParents] = useState([]);
+  const [parentId, setParentId] = useState(null);
+  const [parentLoading, setParentLoading] = useState(false);
+  useEffect(() => {
+    if (dppType !== "batch" && dppType !== "item") return;
+    setParentLoading(true);
+    const url = dppType === "batch" ? "/api/products" : "/api/batches";
+    fetch(url, { credentials: "include" })
+      .then(r => r.ok ? r.json() : [])
+      .then(rows => { setParents(Array.isArray(rows) ? rows : []); })
+      .catch(() => setParents([]))
+      .finally(() => setParentLoading(false));
+  }, [dppType]);
+  const it0 = L?.lang === "it";
+  const parentLevelLabel = dppType === "batch" ? (it0?"MODEL":"MODEL") : (it0?"BATCH":"BATCH");
 
   const formatSize = (bytes) => bytes < 1024*1024 ? (bytes/1024).toFixed(0)+" KB" : (bytes/(1024*1024)).toFixed(1)+" MB";
 
@@ -992,11 +1026,88 @@ function OnboardingUpload({ onNavigate, L, onExtracted, presetType = null }) {
               </button>
             ))}
           </div>
+        ) : (dppType !== "model" && !parentId) ? (
+          /* Doc #5: BATCH/ITEM must be linked to a parent before uploading.
+             This step gates the upload step below so the user can't create
+             an orphaned batch or item. Empty state provides a link back to
+             the Model onboarding so they can create the parent first. */
+          <div style={{ marginBottom: 28 }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8, marginBottom: 16 }}>
+              <Badge color={dppType==="batch"?(T.accentDark||T.accent):"#3B82F6"} bg={dppType==="batch"?T.accentSoft:(T.blueSoft||"#EFF6FF")}>{dppType==="batch"?"DPP Batch":"DPP Item"}</Badge>
+              <button onClick={()=>{ setDppType(null); setParentId(null); }} style={{ background: "none", border: "none", color: T.textSec, fontSize: 11, cursor: "pointer", fontFamily: font }}>{it?"Cambia tipo →":"Change type →"}</button>
+            </div>
+            <div style={{ fontSize: 15, fontWeight: 700, color: T.navy, marginBottom: 4 }}>
+              {it ? `Seleziona il ${parentLevelLabel} genitore` : `Select the parent ${parentLevelLabel}`}
+            </div>
+            <div style={{ fontSize: 12, color: T.textSec, marginBottom: 14 }}>
+              {it
+                ? `Un DPP ${dppType==="batch"?"Batch":"Item"} eredita da un ${parentLevelLabel} esistente. Se non ne hai ancora uno, creane uno prima.`
+                : `A DPP ${dppType==="batch"?"Batch":"Item"} inherits from an existing ${parentLevelLabel}. If you don't have one yet, create it first.`}
+            </div>
+            {parentLoading && (
+              <div style={{ padding: "18px 0", textAlign: "center", fontSize: 12, color: T.textSec }}>{it?"Caricamento…":"Loading…"}</div>
+            )}
+            {!parentLoading && parents.length === 0 && (
+              <div style={{ padding: "16px 18px", borderRadius: 8, background: T.amberSoft, border: `1px solid ${T.amber}`, fontSize: 12, color: "#92400E", marginBottom: 12 }}>
+                {it
+                  ? `Nessun ${parentLevelLabel} disponibile.`
+                  : `No ${parentLevelLabel} available yet.`}
+                <button onClick={()=>onNavigate(dppType==="batch"?"onboard":"onboard-batch")} style={{ marginLeft: 8, background: "none", border: "none", color: T.accentDark, fontWeight: 700, cursor: "pointer", fontFamily: font, fontSize: 12 }}>
+                  {it?`Crea ${parentLevelLabel} →`:`Create ${parentLevelLabel} →`}
+                </button>
+              </div>
+            )}
+            {!parentLoading && parents.length > 0 && (
+              <div style={{ display: "flex", flexDirection: "column", gap: 6, maxHeight: 320, overflowY: "auto", padding: "2px" }}>
+                {parents.map(p => {
+                  const label = dppType === "batch"
+                    ? `${p.name || "—"}${p.family_code?` · ${p.family_code}`:""}`
+                    : `${p.lot || "—"}${p.site?` · ${p.site}`:""}`;
+                  const sub = dppType === "batch"
+                    ? dppId("model", p.public_id, p.id)
+                    : dppId("batch", p.public_id, p.id);
+                  return (
+                    <button key={p.id} onClick={()=>{
+                      setParentId(p.id);
+                      // For a batch: parent IS the product → jump straight into
+                      // that product's edit view, where the Batch mgmtTab
+                      // already hosts the create-batch form. For an item, the
+                      // parent is a batch; navigate to its owning product and
+                      // let the user drill into the batch, since Item creation
+                      // lives under the model view's Item tab.
+                      if (typeof onSelectParent === "function") {
+                        const targetProductId = dppType === "batch" ? p.id : p.product_id;
+                        if (targetProductId) onSelectParent(targetProductId, "app-edit");
+                      }
+                    }} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", borderRadius: 8, border: `1px solid ${T.border}`, background: T.bg, cursor: "pointer", textAlign: "left", fontFamily: font }} onMouseEnter={e=>e.currentTarget.style.borderColor=T.accent} onMouseLeave={e=>e.currentTarget.style.borderColor=T.border}>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: 13, fontWeight: 700, color: T.textDark, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{label}</div>
+                        <div style={{ fontSize: 10, color: T.textSec, fontFamily: "'JetBrains Mono',monospace" }}>{sub}</div>
+                      </div>
+                      <I d={ic.chevRight} size={13} color={T.textSec} />
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
         ) : (<>
-          {/* Type badge + change link */}
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8, marginBottom: 16 }}>
+          {/* Type badge + change link (plus parent chip for batch/item) */}
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8, marginBottom: 16, flexWrap: "wrap" }}>
             <Badge color={dppType==="model"?T.textSec:dppType==="batch"?(T.accentDark||T.accent):"#3B82F6"} bg={dppType==="model"?T.bgSoft:dppType==="batch"?T.accentSoft:(T.blueSoft||"#EFF6FF")}>{dppType==="model"?"DPP Model":dppType==="batch"?"DPP Batch":"DPP Item"}</Badge>
-            <button onClick={()=>setDppType(null)} style={{ background: "none", border: "none", color: T.textSec, fontSize: 11, cursor: "pointer", fontFamily: font }}>{it?"Cambia tipo →":"Change type →"}</button>
+            {parentId && (() => {
+              const p = parents.find(x => x.id === parentId);
+              if (!p) return null;
+              const lbl = dppType === "batch" ? (p.name || "—") : (p.lot || "—");
+              return (
+                <span style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "3px 10px", borderRadius: 999, background: T.accentSoft, fontSize: 11, fontWeight: 600, color: T.accentDark }}>
+                  <I d={ic.link || ic.clip} size={10} color={T.accentDark} />
+                  {it?"Genitore:":"Parent:"} {lbl}
+                  <button onClick={()=>setParentId(null)} style={{ background: "none", border: "none", cursor: "pointer", padding: 0, marginLeft: 2 }}><I d={ic.x} size={10} color={T.accentDark} /></button>
+                </span>
+              );
+            })()}
+            <button onClick={()=>{ setDppType(null); setParentId(null); }} style={{ background: "none", border: "none", color: T.textSec, fontSize: 11, cursor: "pointer", fontFamily: font }}>{it?"Cambia tipo →":"Change type →"}</button>
           </div>
           <div
             onClick={() => fileInputRef.current?.click()}
@@ -3161,6 +3272,37 @@ function AppView({ onNavigate, L, product, onAddProjectDPP, onPublish, onReloadP
   const [showExport, setShowExport] = useState(false);
   const [showPublicDPP, setShowPublicDPP] = useState(false);
   const [versions, setVersions] = useState([]);
+  // Bucket 7 (Doc #7): batch quantity edit modal state. `editingBatchQty`
+  // opens the modal; on save we PATCH /api/batches/{id} then reload the
+  // parent product so the display picks up the new value.
+  const [editingBatchQty, setEditingBatchQty] = useState(false);
+  const [batchQtyDraft, setBatchQtyDraft] = useState({ value: "", unit: "" });
+  const [batchQtySaving, setBatchQtySaving] = useState(false);
+  const [batchQtyError, setBatchQtyError] = useState(null);
+  const saveBatchQty = async (batchId, value, unit) => {
+    if (!batchId) return;
+    setBatchQtySaving(true); setBatchQtyError(null);
+    try {
+      const numeric = value === "" || value == null ? null : Number(value);
+      const res = await fetch(`/api/batches/${batchId}`, {
+        method: "PATCH", credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ available_quantity: numeric, available_unit: unit || null }),
+      });
+      if (!res.ok) {
+        const detail = (await res.json().catch(() => ({}))).detail || res.statusText;
+        setBatchQtyError(`Save failed (${res.status}): ${detail}`);
+        setBatchQtySaving(false);
+        return;
+      }
+      setEditingBatchQty(false);
+      if (typeof onReloadProduct === "function" && product?.id) onReloadProduct(product.id);
+    } catch (e) {
+      setBatchQtyError(`Save failed: ${String(e)}`);
+    } finally {
+      setBatchQtySaving(false);
+    }
+  };
   // Bucket 6 Tier C: banner KPIs (Carbon / Recycled / Recyclable) can be
   // overridden manually. The override is stored under passport.metadata.
   // kpi_overrides; the display prefers override, falls back to derived.
@@ -3227,7 +3369,13 @@ function AppView({ onNavigate, L, product, onAddProjectDPP, onPublish, onReloadP
     return (r && r.v != null && r.v !== "") ? r.v : fallback;
   };
   const pname = rv("overview.product_info.product_name", "XPS Insulation Panel 100mm");
-  const puid = rv("overview.product_info.uid", "DPP-20260115-a3f8c2d1");
+  // Bucket 7: prefer the DPP-M-{public_id} display ID over the extractor's
+  // free-text UID (which comes from the source doc and is often blank or
+  // duplicate). Falls back to extracted UID or demo string when public_id
+  // isn't set yet (unmigrated products).
+  const puid = product?.publicId != null
+    ? dppId("model", product.publicId, product?.id)
+    : rv("overview.product_info.uid", "DPP-20260115-a3f8c2d1");
   const pmfr = rv("overview.manufacturer.company_name", "Deeppy Construction Materials srl");
   const pctDone = Math.round(stats?.completeness ?? product?.completeness ?? 100);
 
@@ -3547,12 +3695,18 @@ body{font-family:'Inter',sans-serif;color:#1E293B;font-size:12px;line-height:1.5
   };
   const realBatches = (product?.projectDPPs || []).map(pd => ({
     id: pd.id,
+    publicId: pd.publicId,       // Bucket 7: DPP-B-{public_id} display
     lot: pd.batch || "",
     site: pd.site || "",
     date: _fmtDate(pd.createdAt) || _fmtDate(pd.productionDate),
+    productionDate: pd.productionDate || "",
+    availableQuantity: pd.availableQuantity,   // Bucket 7 accounting fields
+    availableUnit: pd.availableUnit,
+    overrides: pd.overrides || {},
     pct: 100,
     items: (pd.items || []).map(it => ({
       id: it.id,
+      publicId: it.publicId,     // Bucket 7: DPP-I-{public_id}
       sn: it.serial_number || "",
       dims: it.dimensions || "",
       weight: it.weight || "",
@@ -3651,25 +3805,40 @@ body{font-family:'Inter',sans-serif;color:#1E293B;font-size:12px;line-height:1.5
       // so users see the same information wherever they navigate to it.
       // MODEL and ITEM keep the standard chart-heavy overview below.
       if (dppLevel === "batch") {
-        const spec = currentBatch
-          ? { batch: currentBatch.lot, site: currentBatch.site, date: currentBatch.date, productionDate: currentBatch.date, overrides: {} }
-          : null;
+        const spec = currentBatch || null;
         const dash = "—";
+        // Bucket 7: quantity now sourced from the real Batch column
+        // (availableQuantity + availableUnit), with the earlier overrides.quantity
+        // as a fallback for legacy batches that were pre-migration.
+        const qtyValue = spec?.availableQuantity != null && spec.availableQuantity !== ""
+          ? `${spec.availableQuantity}${spec.availableUnit?` ${spec.availableUnit}`:""}`
+          : (spec?.overrides?.quantity || dash);
         const rows = spec ? [
           { l: it?"Nome DPP Model":"DPP model name", v: product?.name || pname || dash },
           { l: "UID", v: puid || dash },
           { l: "GTIN/EAN", v: rv("overview.product_info.gtin", dash) },
-          { l: it?"Lotto produttivo":"Production batch", v: spec.batch || dash },
-          { l: it?"Data di produzione":"Date of manufacturing", v: spec.productionDate || dash },
+          { l: it?"Lotto produttivo":"Production batch", v: spec.lot || dash },
+          { l: it?"Data di produzione":"Date of manufacturing", v: spec.productionDate || spec.date || dash },
           { l: it?"Data di consegna":"Date of delivery", v: spec.overrides?.delivery_date || dash },
           { l: it?"Stabilimento":"Production site", v: spec.site || dash },
-          { l: it?"Quantità":"Quantity", v: spec.overrides?.quantity || dash },
+          { l: it?"Quantità":"Quantity", v: qtyValue, key: "quantity" },
         ] : [];
         return (<div style={{ marginBottom: 20 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-            <div style={{ fontSize: 13, fontWeight: 700, color: T.textSec, textTransform: "uppercase", letterSpacing: "0.05em" }}>
-              {it?"Panoramica DPP Batch":"Batch DPP Overview"}
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: T.textSec, textTransform: "uppercase", letterSpacing: "0.05em" }}>
+                {it?"Panoramica DPP Batch":"Batch DPP Overview"}
+              </div>
+              {spec?.publicId != null && (
+                <Badge color={T.accentDark||T.accent} bg={T.accentSoft}>{dppId("batch", spec.publicId, spec.id)}</Badge>
+              )}
             </div>
+            {spec && (
+              <button onClick={() => setEditingBatchQty(true)} style={{ display: "flex", alignItems: "center", gap: 4, padding: "4px 10px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.bg, cursor: "pointer", fontFamily: font, fontSize: 11, fontWeight: 600, color: T.textDark }}>
+                <I d={ic.edit} size={11} color={T.textSec} />
+                {it?"Modifica quantità":"Edit quantity"}
+              </button>
+            )}
           </div>
           {rows.length ? (
             <div style={{ borderRadius: 10, border: `1px solid ${T.border}`, background: T.bg, overflow: "hidden" }}>
@@ -3677,8 +3846,9 @@ body{font-family:'Inter',sans-serif;color:#1E293B;font-size:12px;line-height:1.5
                 {rows.map((r, i) => {
                   const inLastRow = i >= rows.length - 2;
                   const isLeft = i % 2 === 0;
+                  const isQty = r.key === "quantity";
                   return (
-                    <div key={i} style={{ padding: "14px 18px", borderBottom: inLastRow ? "none" : `1px solid ${T.borderLight}`, borderRight: isLeft ? `1px solid ${T.borderLight}` : "none" }}>
+                    <div key={i} style={{ padding: "14px 18px", borderBottom: inLastRow ? "none" : `1px solid ${T.borderLight}`, borderRight: isLeft ? `1px solid ${T.borderLight}` : "none", background: isQty ? T.accentSoft + "20" : "transparent" }}>
                       <div style={{ fontSize: 10, fontWeight: 600, color: T.textSec, textTransform: "uppercase", marginBottom: 3 }}>{r.l}</div>
                       <div style={{ fontSize: 13, fontWeight: 700, color: r.v === dash ? T.textSec : T.navy, fontStyle: r.v === dash ? "italic" : "normal" }}>{r.v}</div>
                     </div>
@@ -4205,6 +4375,60 @@ body{font-family:'Inter',sans-serif;color:#1E293B;font-size:12px;line-height:1.5
         </div>
       )}
       {/* QR Code Modal */}
+      {editingBatchQty && currentBatch && (() => {
+        // Prime the draft from the current batch on first open, once the modal
+        // is actually visible. This IIFE runs on every render — cheap enough
+        // and avoids a useEffect on modal open.
+        if (batchQtyDraft.value === "" && batchQtyDraft.unit === "") {
+          if (currentBatch.availableQuantity != null || currentBatch.availableUnit) {
+            setBatchQtyDraft({
+              value: currentBatch.availableQuantity != null ? String(currentBatch.availableQuantity) : "",
+              unit: currentBatch.availableUnit || "",
+            });
+          }
+        }
+        return (
+          <div onClick={() => { setEditingBatchQty(false); setBatchQtyDraft({ value: "", unit: "" }); setBatchQtyError(null); }} style={{ position: "fixed", inset: 0, background: "rgba(15,23,41,0.6)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+            <div onClick={e => e.stopPropagation()} style={{ width: "100%", maxWidth: 460, background: T.bg, borderRadius: 12, boxShadow: "0 24px 48px rgba(0,0,0,0.2)", padding: 20 }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
+                <div style={{ fontSize: 15, fontWeight: 800, color: T.navy }}>{it?"Modifica quantità del batch":"Edit batch quantity"}</div>
+                <button onClick={() => { setEditingBatchQty(false); setBatchQtyDraft({ value: "", unit: "" }); setBatchQtyError(null); }} style={{ background: "none", border: "none", cursor: "pointer", padding: 4 }}><I d={ic.x} size={16} color={T.textSec} /></button>
+              </div>
+              <div style={{ fontSize: 12, color: T.textSec, marginBottom: 14 }}>
+                {it
+                  ? "La quantità reale prodotta in questo batch. I DPP figli che collegheranno questo batch confronteranno la loro richiesta contro il rimanente."
+                  : "The real quantity produced in this batch. Child DPPs that link this batch compare their requirement against what's left."}
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 10, marginBottom: 14 }}>
+                <div>
+                  <div style={{ fontSize: 10, fontWeight: 700, color: T.textSec, marginBottom: 3 }}>{it?"Quantità":"Quantity"}</div>
+                  <input type="number" step="0.01" min="0" value={batchQtyDraft.value} onChange={e => setBatchQtyDraft(d => ({ ...d, value: e.target.value }))} autoFocus style={{ width: "100%", padding: "8px 10px", borderRadius: 6, border: `1px solid ${T.border}`, fontSize: 13, fontFamily: font, outline: "none" }} />
+                </div>
+                <div>
+                  <div style={{ fontSize: 10, fontWeight: 700, color: T.textSec, marginBottom: 3 }}>{it?"Unità":"Unit"}</div>
+                  <select value={batchQtyDraft.unit} onChange={e => setBatchQtyDraft(d => ({ ...d, unit: e.target.value }))} style={{ width: "100%", padding: "8px 10px", borderRadius: 6, border: `1px solid ${T.border}`, fontSize: 13, fontFamily: font, outline: "none", background: T.bg }}>
+                    <option value=""></option>
+                    <option value="kg">kg</option>
+                    <option value="t">t</option>
+                    <option value="l">l</option>
+                    <option value="m³">m³</option>
+                    <option value="pcs">pcs</option>
+                  </select>
+                </div>
+              </div>
+              {batchQtyError && (
+                <div style={{ marginBottom: 10, padding: "8px 10px", borderRadius: 6, background: T.redSoft || "#FEE2E2", color: T.red, fontSize: 12 }}>{batchQtyError}</div>
+              )}
+              <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+                <button disabled={batchQtySaving} onClick={() => { setEditingBatchQty(false); setBatchQtyDraft({ value: "", unit: "" }); setBatchQtyError(null); }} style={{ padding: "7px 14px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.bg, cursor: batchQtySaving?"wait":"pointer", fontFamily: font, fontSize: 12, fontWeight: 600, color: T.textDark }}>{it?"Annulla":"Cancel"}</button>
+                <Btn small primary disabled={batchQtySaving} onClick={() => saveBatchQty(currentBatch.id, batchQtyDraft.value, batchQtyDraft.unit)} style={{ padding: "6px 14px", fontSize: 12 }}>
+                  {batchQtySaving ? (it?"Salvataggio…":"Saving…") : (it?"Salva":"Save")}
+                </Btn>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
       {showQR && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(15,23,41,0.6)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }} onClick={() => setShowQR(false)}>
           <div onClick={e => e.stopPropagation()} style={{ width: "100%", maxWidth: 420, background: T.bg, borderRadius: 16, boxShadow: "0 24px 48px rgba(0,0,0,0.2)" }}>
@@ -5630,6 +5854,9 @@ export default function DeePPy() {
   // Map an API product (summary or detail) → the shape the UI components expect.
   const apiToProduct = (api) => ({
     id: api.id,
+    // Bucket 7 / Tier D: incremental integer for the DPP-M-{public_id}
+    // prefixed display + /dpp/model/{public_id} public URL.
+    publicId: api.public_id,
     name: api.name,
     manufacturer: api.manufacturer || "",
     status: api.status || "draft",
@@ -5653,16 +5880,22 @@ export default function DeePPy() {
       return `/api/products/${api.id}/documents/${d.id}${bust}`;
     })(),
     projectDPPs: (api.batches || []).map(b => ({
-      id: b.id, batch: b.lot || "", site: b.site || "", ref: b.ref || "",
+      id: b.id,
+      publicId: b.public_id,     // Bucket 7: DPP-B-{public_id} handle
+      batch: b.lot || "", site: b.site || "", ref: b.ref || "",
       dims: "", weight: "",
       createdAt: b.created_at,
       // Bucket 5 item 4: fields required in the trimmed Batch tab.
       // production_date is the schema-native manufacturing date.
-      // delivery_date + quantity + gtin live in `overrides` until a real
-      // schema column exists.
+      // delivery_date + gtin live in `overrides` until a real schema column exists.
       productionDate: b.production_date || "",
+      // Bucket 7: available_quantity + available_unit are now first-class
+      // columns on Batch. Client's "Quantity" field on the batch overview
+      // reads/writes these directly instead of going through overrides.
+      availableQuantity: b.available_quantity,
+      availableUnit: b.available_unit,
       overrides: b.overrides || {},
-      items: b.items || [],
+      items: (b.items || []).map(it => ({ ...it, publicId: it.public_id })),
     })),
   });
 
@@ -5907,8 +6140,8 @@ export default function DeePPy() {
       case "landing": return <NewLandingPage onNavigate={navigate} L={L} />;
       case "signup": case "login": return <SignupPage onNavigate={navigate} L={L} onAuth={handleAuth} />;
       case "onboard": return <OnboardingUpload onNavigate={navigate} L={L} onExtracted={handleExtracted} />;
-      case "onboard-batch": return <OnboardingUpload onNavigate={navigate} L={L} onExtracted={handleExtracted} presetType="batch" />;
-      case "onboard-item": return <OnboardingUpload onNavigate={navigate} L={L} onExtracted={handleExtracted} presetType="item" />;
+      case "onboard-batch": return <OnboardingUpload onNavigate={navigate} L={L} onExtracted={handleExtracted} presetType="batch" onSelectParent={navigateToProduct} />;
+      case "onboard-item": return <OnboardingUpload onNavigate={navigate} L={L} onExtracted={handleExtracted} presetType="item" onSelectParent={navigateToProduct} />;
       case "dashboard": return <DashboardView onNavigate={navigate} L={L} products={products} onSelectProduct={navigateToProduct} onDelete={handleDeleteProduct} onDuplicate={handleDuplicateProduct} onLogout={handleLogout} user={user} />;
       case "catalog": return <CatalogView onNavigate={navigate} L={L} onLogout={handleLogout} user={user} />;
       case "projects": return <ProjectsView onNavigate={navigate} L={L} products={products} onLogout={handleLogout} user={user} />;

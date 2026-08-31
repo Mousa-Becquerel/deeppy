@@ -48,6 +48,24 @@ class MaterialEntry(BaseModel):
         description="Whether the material is recyclable"
     )
     suppliers: list[SupplierData] = Field(default_factory=list)
+    # Bucket 7 / Tier D batch accounting: when this material row on a BATCH
+    # DPP draws from another BATCH DPP (e.g. this biomortar's "bio-aggregates"
+    # actually comes from "Almond shell #1" batch), we store that link + the
+    # amount this parent requires. Both null on MODEL-level rows and on
+    # unlinked BATCH-level rows. required_unit should match the child batch's
+    # available_unit for the availability check to work; the UI enforces it.
+    linked_batch_uuid: Optional[str] = Field(
+        None,
+        description="UUID of the child BATCH DPP that supplies this material"
+    )
+    required_quantity: Optional[float] = Field(
+        None,
+        description="Amount of the child batch this parent consumes"
+    )
+    required_unit: Optional[str] = Field(
+        None,
+        description="Unit of required_quantity (kg / t / l / m^3 / pcs)"
+    )
 
 
 class PackagingEntry(BaseModel):

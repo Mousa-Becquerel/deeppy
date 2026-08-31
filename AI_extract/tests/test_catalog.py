@@ -93,7 +93,9 @@ def test_catalog_kpis_extract_recycled_and_gwp(register):
     row = next(r for r in client.get("/api/catalog").json() if r["id"] == pid)
     assert row["kpis"]["recycled"] == "72%"
     assert row["kpis"]["gwp_total"] == 6.0  # 5.5 + 0.5, None skipped
-    assert row["kpis"]["energy_class"] is None
+    # Bucket 6: energy_class KPI was replaced by recyclable (never-populated
+    # energy field yielded no signal; recyclable pulls from real EPD rows).
+    assert row["kpis"]["recyclable"] is None
 
 
 def test_catalog_kpis_empty_when_passport_empty(register):
@@ -101,7 +103,7 @@ def test_catalog_kpis_empty_when_passport_empty(register):
     _, u = register(client, email="cat_empty@co.example")
     pid = _seed(u["company_id"], name="Empty", status="published", passport={})
     row = next(r for r in client.get("/api/catalog").json() if r["id"] == pid)
-    assert row["kpis"] == {"gwp_total": None, "recycled": None, "energy_class": None}
+    assert row["kpis"] == {"gwp_total": None, "recycled": None, "recyclable": None}
 
 
 def test_catalog_detail_returns_published_cross_tenant(register):

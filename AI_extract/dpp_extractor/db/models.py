@@ -84,6 +84,12 @@ class Product(Base):
     __tablename__ = "products"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    # Bucket 7 / Tier D: incremental integer used in prefixed display IDs
+    # (DPP-M-{public_id}) and public URLs (/dpp/model/{public_id}). Populated
+    # by the repository on create; unique across the products table.
+    public_id: Mapped[int | None] = mapped_column(
+        Integer, unique=True, nullable=True, index=True
+    )
     company_id: Mapped[str | None] = mapped_column(
         ForeignKey("companies.id"), nullable=True, index=True
     )
@@ -122,6 +128,10 @@ class Batch(Base):
     __tablename__ = "batches"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    # Bucket 7: DPP-B-{public_id} + /dpp/batch/{public_id}. Populated by repo.
+    public_id: Mapped[int | None] = mapped_column(
+        Integer, unique=True, nullable=True, index=True
+    )
     product_id: Mapped[str] = mapped_column(
         ForeignKey("products.id"), nullable=False, index=True
     )
@@ -131,6 +141,13 @@ class Batch(Base):
     ref: Mapped[str | None] = mapped_column(String(255), nullable=True)
     production_date: Mapped[str | None] = mapped_column(String(64), nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    # Bucket 7 batch accounting: the REAL total quantity this batch produced,
+    # in a chosen unit (kg / t / l / m^3 / pcs). Used by the availability
+    # check: a parent batch that consumes this one shows a red badge when
+    # its required_quantity exceeds (available_quantity - Σ consumed).
+    available_quantity: Mapped[float | None] = mapped_column(Float, nullable=True)
+    available_unit: Mapped[str | None] = mapped_column(String(16), nullable=True)
 
     # Field-level overrides on top of the parent product's passport,
     # keyed by dotted path, e.g. {"overview.product_info.weight": "42 kg"}.
@@ -150,6 +167,10 @@ class Item(Base):
     __tablename__ = "items"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    # Bucket 7: DPP-I-{public_id} + /dpp/item/{public_id}. Populated by repo.
+    public_id: Mapped[int | None] = mapped_column(
+        Integer, unique=True, nullable=True, index=True
+    )
     batch_id: Mapped[str] = mapped_column(
         ForeignKey("batches.id"), nullable=False, index=True
     )
