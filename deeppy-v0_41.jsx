@@ -1176,7 +1176,11 @@ function ComponentiTab({ editMode, onNavigate, L, dppData, blankShell = false, p
     // ones visible.
     const supplierFallback = !realSource && supName && supName !== "-" ? supName : null;
     return {
-      id: _mv(m, "id_code") || m.material_id || ("mat" + i),
+      // Bug fix: material_id is a REQUIRED, deterministic field on the
+      // backend (MaterialEntry.material_id: str). Prefer it over id_code
+      // (an optional ExtractedField that can flip between empty and full
+      // between reloads, orphaning batchLinks keyed by it).
+      id: m.material_id || _mv(m, "id_code") || ("mat" + i),
       linked: false,
       genericName: _mv(m, "description") || (it ? "Materiale" : "Material"),
       detail: parts.join(" — ") || null,
@@ -1347,14 +1351,18 @@ function ComponentiTab({ editMode, onNavigate, L, dppData, blankShell = false, p
   useEffect(() => {
     if (!isBatchMode || pickerFor == null) return;
     setBatchesLoading(true);
-    const parentFam = product?.dppData?.passport?.metadata?.product_family || product?.family_code;
+    // Bug fix: the backend `family_code` filter compares against the short
+    // CPR code stored on Product ("CEM", not "Cement, building limes..."),
+    // so use product.familyCode. metadata.product_family (full name) here
+    // would always return zero results.
+    const parentFam = product?.familyCode || null;
     const qs = (familyOnly && parentFam) ? `?family_code=${encodeURIComponent(parentFam)}` : "";
     fetch(`/api/batches${qs}`, { credentials: "include" })
       .then(r => r.ok ? r.json() : [])
       .then(rows => { if (Array.isArray(rows)) setAvailableBatches(rows.filter(b => b.id !== batch?.id)); })
       .catch(() => setAvailableBatches([]))
       .finally(() => setBatchesLoading(false));
-  }, [pickerFor, familyOnly, isBatchMode, batch?.id, product?.family_code]);
+  }, [pickerFor, familyOnly, isBatchMode, batch?.id, product?.familyCode]);
 
   // Preload availability for every already-linked child batch so we can show
   // the badge immediately on first render (no per-row wait).
@@ -3540,6 +3548,20 @@ function AppView({ onNavigate, L, product, onAddProjectDPP, onPublish, onReloadP
   const [batchQtyDraft, setBatchQtyDraft] = useState({ value: "", unit: "" });
   const [batchQtySaving, setBatchQtySaving] = useState(false);
   const [batchQtyError, setBatchQtyError] = useState(null);
+  // Bug fix: prime the draft when the modal opens (proper effect instead of
+  // setState-during-render inside the modal's IIFE, which risked "Too many
+  // re-renders"). Clears when modal closes so re-open re-primes cleanly.
+  useEffect(() => {
+    if (editingBatchQty && currentBatch) {
+      setBatchQtyDraft({
+        value: currentBatch.availableQuantity != null ? String(currentBatch.availableQuantity) : "",
+        unit: currentBatch.availableUnit || "",
+      });
+      setBatchQtyError(null);
+    } else if (!editingBatchQty) {
+      setBatchQtyDraft({ value: "", unit: "" });
+    }
+  }, [editingBatchQty, currentBatch?.id]);
   const saveBatchQty = async (batchId, value, unit) => {
     if (!batchId) return;
     setBatchQtySaving(true); setBatchQtyError(null);
@@ -4636,20 +4658,8 @@ body{font-family:'Inter',sans-serif;color:#1E293B;font-size:12px;line-height:1.5
         </div>
       )}
       {/* QR Code Modal */}
-      {editingBatchQty && currentBatch && (() => {
-        // Prime the draft from the current batch on first open, once the modal
-        // is actually visible. This IIFE runs on every render — cheap enough
-        // and avoids a useEffect on modal open.
-        if (batchQtyDraft.value === "" && batchQtyDraft.unit === "") {
-          if (currentBatch.availableQuantity != null || currentBatch.availableUnit) {
-            setBatchQtyDraft({
-              value: currentBatch.availableQuantity != null ? String(currentBatch.availableQuantity) : "",
-              unit: currentBatch.availableUnit || "",
-            });
-          }
-        }
-        return (
-          <div onClick={() => { setEditingBatchQty(false); setBatchQtyDraft({ value: "", unit: "" }); setBatchQtyError(null); }} style={{ position: "fixed", inset: 0, background: "rgba(15,23,41,0.6)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+      {editingBatchQty && currentBatch && (
+          <div onClick={() => setEditingBatchQty(false)} style={{ position: "fixed", inset: 0, background: "rgba(15,23,41,0.6)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
             <div onClick={e => e.stopPropagation()} style={{ width: "100%", maxWidth: 460, background: T.bg, borderRadius: 12, boxShadow: "0 24px 48px rgba(0,0,0,0.2)", padding: 20 }}>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
                 <div style={{ fontSize: 15, fontWeight: 800, color: T.navy }}>{it?"Modifica quantità del batch":"Edit batch quantity"}</div>
@@ -4681,15 +4691,14 @@ body{font-family:'Inter',sans-serif;color:#1E293B;font-size:12px;line-height:1.5
                 <div style={{ marginBottom: 10, padding: "8px 10px", borderRadius: 6, background: T.redSoft || "#FEE2E2", color: T.red, fontSize: 12 }}>{batchQtyError}</div>
               )}
               <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
-                <button disabled={batchQtySaving} onClick={() => { setEditingBatchQty(false); setBatchQtyDraft({ value: "", unit: "" }); setBatchQtyError(null); }} style={{ padding: "7px 14px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.bg, cursor: batchQtySaving?"wait":"pointer", fontFamily: font, fontSize: 12, fontWeight: 600, color: T.textDark }}>{it?"Annulla":"Cancel"}</button>
+                <button disabled={batchQtySaving} onClick={() => setEditingBatchQty(false)} style={{ padding: "7px 14px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.bg, cursor: batchQtySaving?"wait":"pointer", fontFamily: font, fontSize: 12, fontWeight: 600, color: T.textDark }}>{it?"Annulla":"Cancel"}</button>
                 <Btn small primary disabled={batchQtySaving} onClick={() => saveBatchQty(currentBatch.id, batchQtyDraft.value, batchQtyDraft.unit)} style={{ padding: "6px 14px", fontSize: 12 }}>
                   {batchQtySaving ? (it?"Salvataggio…":"Saving…") : (it?"Salva":"Save")}
                 </Btn>
               </div>
             </div>
           </div>
-        );
-      })()}
+        )}
       {showQR && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(15,23,41,0.6)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }} onClick={() => setShowQR(false)}>
           <div onClick={e => e.stopPropagation()} style={{ width: "100%", maxWidth: 420, background: T.bg, borderRadius: 16, boxShadow: "0 24px 48px rgba(0,0,0,0.2)" }}>
@@ -6120,6 +6129,11 @@ export default function DeePPy() {
     publicId: api.public_id,
     name: api.name,
     manufacturer: api.manufacturer || "",
+    // Bug fix: the batch-composition picker's "Same family" filter needs
+    // the SHORT CPR code ("CEM"), not the full descriptive name from
+    // passport.metadata.product_family. api.family_code carries the short
+    // code — thread it through so the picker can filter correctly.
+    familyCode: api.family_code || null,
     status: api.status || "draft",
     completeness: Math.round(api.completeness || 0),
     createdAt: api.created_at || new Date().toISOString(),
