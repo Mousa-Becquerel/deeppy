@@ -3594,6 +3594,15 @@ function AppView({ onNavigate, L, product, onAddProjectDPP, onPublish, onReloadP
   // Bug fix: prime the draft when the modal opens (proper effect instead of
   // setState-during-render inside the modal's IIFE, which risked "Too many
   // re-renders"). Clears when modal closes so re-open re-primes cleanly.
+  //
+  // TDZ note: `currentBatch` is a `const` declared ~460 lines below in the
+  // same function. Reading it in the deps array here — which React evaluates
+  // during render, BEFORE that `const` is initialised — throws a
+  // "Cannot access X before initialization" and takes the whole AppView
+  // down to a blank screen. `selectedBatchId` is declared much earlier and
+  // is the actual driver of what currentBatch resolves to, so it's the
+  // right dep to use. Inside the callback (which runs POST-render),
+  // currentBatch is fully initialised and safe to read.
   useEffect(() => {
     if (editingBatchQty && currentBatch) {
       setBatchQtyDraft({
@@ -3604,7 +3613,8 @@ function AppView({ onNavigate, L, product, onAddProjectDPP, onPublish, onReloadP
     } else if (!editingBatchQty) {
       setBatchQtyDraft({ value: "", unit: "" });
     }
-  }, [editingBatchQty, currentBatch?.id]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editingBatchQty, selectedBatchId]);
   const saveBatchQty = async (batchId, value, unit) => {
     if (!batchId) return;
     setBatchQtySaving(true); setBatchQtyError(null);
