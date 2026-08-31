@@ -1143,7 +1143,7 @@ function OnboardingUpload({ onNavigate, L, onExtracted, presetType = null, onSel
 }
 
 // ─── COMPONENTI TAB (shared edit + published) ────────────
-function ComponentiTab({ editMode, onNavigate, L, dppData, blankShell = false, product = null, onSave = null, onReloadProduct = null }) {
+function ComponentiTab({ editMode, onNavigate, L, dppData, blankShell = false, product = null, onSave = null, onReloadProduct = null, batch = null }) {
   const _ = k => t(k, L?.lang);
   const it = L?.lang === "it";
   const _pp = dppData?.passport;
@@ -1319,6 +1319,117 @@ function ComponentiTab({ editMode, onNavigate, L, dppData, blankShell = false, p
   // chain publicly, but still want the composition itself to be visible.
   const [showSuppliers, setShowSuppliers] = useState(true);
 
+  // ─── Bucket 7 Tier D Phase 2: BATCH composition linking + availability ──
+  // On a BATCH DPP, each material row can link to a child BATCH DPP that
+  // supplies it (e.g., biomortar's "bio-aggregates" ← "almond shell #1").
+  // The row records the child's UUID + how much this parent requires; the
+  // availability check compares required against (child's total − Σ claimed
+  // by other parents). Storage: batch.overrides.composition_links keyed by
+  // material id — keeps MODEL composition rows untouched.
+  const isBatchMode = !!batch?.id;
+  const initialLinks = (batch?.overrides?.composition_links) || {};
+  const [batchLinks, setBatchLinks] = useState(initialLinks);
+  useEffect(() => {
+    setBatchLinks((batch?.overrides?.composition_links) || {});
+  }, [batch?.id, JSON.stringify(batch?.overrides?.composition_links || {})]);
+
+  const [pickerFor, setPickerFor] = useState(null);              // material_id being edited
+  const [availableBatches, setAvailableBatches] = useState([]);
+  const [batchesLoading, setBatchesLoading] = useState(false);
+  const [familyOnly, setFamilyOnly] = useState(true);
+  const [availability, setAvailability] = useState({});          // { child_batch_uuid → {available, consumed, remaining, unit} }
+  const [linkSaving, setLinkSaving] = useState(false);
+  const [linkError, setLinkError] = useState(null);
+
+  // Load the company's batches once when the picker opens; refresh if the
+  // filter toggles. The list endpoint already carries family_code + parent
+  // name so we can render meaningful rows.
+  useEffect(() => {
+    if (!isBatchMode || pickerFor == null) return;
+    setBatchesLoading(true);
+    const parentFam = product?.dppData?.passport?.metadata?.product_family || product?.family_code;
+    const qs = (familyOnly && parentFam) ? `?family_code=${encodeURIComponent(parentFam)}` : "";
+    fetch(`/api/batches${qs}`, { credentials: "include" })
+      .then(r => r.ok ? r.json() : [])
+      .then(rows => { if (Array.isArray(rows)) setAvailableBatches(rows.filter(b => b.id !== batch?.id)); })
+      .catch(() => setAvailableBatches([]))
+      .finally(() => setBatchesLoading(false));
+  }, [pickerFor, familyOnly, isBatchMode, batch?.id, product?.family_code]);
+
+  // Preload availability for every already-linked child batch so we can show
+  // the badge immediately on first render (no per-row wait).
+  useEffect(() => {
+    if (!isBatchMode) return;
+    const ids = Array.from(new Set(Object.values(batchLinks).map(l => l && l.linked_batch_uuid).filter(Boolean)));
+    if (!ids.length) { setAvailability({}); return; }
+    let cancelled = false;
+    Promise.all(ids.map(id =>
+      fetch(`/api/batches/${id}/availability`, { credentials: "include" })
+        .then(r => r.ok ? r.json() : null)
+        .catch(() => null)
+    )).then(results => {
+      if (cancelled) return;
+      const next = {};
+      results.forEach(r => { if (r && r.batch_id) next[r.batch_id] = r; });
+      setAvailability(next);
+    });
+    return () => { cancelled = true; };
+  }, [isBatchMode, JSON.stringify(batchLinks)]);
+
+  // Persist the batchLinks dict to batch.overrides.composition_links via
+  // PATCH /api/batches/{id}. Reloads the parent product so the batch view
+  // refreshes with the new overrides on next render.
+  const saveBatchLinks = async (nextLinks) => {
+    if (!isBatchMode || !batch?.id) return;
+    setLinkSaving(true); setLinkError(null);
+    const nextOverrides = { ...(batch.overrides || {}), composition_links: nextLinks };
+    try {
+      const res = await fetch(`/api/batches/${batch.id}`, {
+        method: "PATCH", credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ overrides: nextOverrides }),
+      });
+      if (!res.ok) {
+        const detail = (await res.json().catch(() => ({}))).detail || res.statusText;
+        setLinkError(`Save failed (${res.status}): ${detail}`);
+      } else if (typeof onReloadProduct === "function" && product?.id) {
+        onReloadProduct(product.id);
+      }
+    } catch (e) {
+      setLinkError(`Save failed: ${String(e)}`);
+    } finally {
+      setLinkSaving(false);
+    }
+  };
+
+  const applyBatchLink = (materialId, childBatch) => {
+    const next = { ...batchLinks, [materialId]: {
+      linked_batch_uuid: childBatch.id,
+      linked_batch_public_id: childBatch.public_id,
+      linked_batch_label: childBatch.lot || childBatch.parent_product_name || childBatch.id.slice(0, 8),
+      required_quantity: batchLinks[materialId]?.required_quantity ?? null,
+      required_unit: childBatch.available_unit || batchLinks[materialId]?.required_unit || "",
+    } };
+    setBatchLinks(next);
+    setPickerFor(null);
+    saveBatchLinks(next);
+  };
+  const clearBatchLink = (materialId) => {
+    const next = { ...batchLinks };
+    delete next[materialId];
+    setBatchLinks(next);
+    saveBatchLinks(next);
+  };
+  const setRequiredQty = (materialId, qty) => {
+    const link = batchLinks[materialId];
+    if (!link) return;
+    const n = qty === "" || qty == null ? null : Number(qty);
+    const next = { ...batchLinks, [materialId]: { ...link, required_quantity: Number.isFinite(n) ? n : null } };
+    setBatchLinks(next);
+    // Debounce would be nicer; for MVP save on every commit (blur / enter).
+    saveBatchLinks(next);
+  };
+
   return (
     <div>
       <div style={{ background: T.bg, borderRadius: 10, border: `1px solid ${T.border}`, overflow: "hidden", marginBottom: 16 }}>
@@ -1442,6 +1553,80 @@ function ComponentiTab({ editMode, onNavigate, L, dppData, blankShell = false, p
                   )}
                 </div>
               )}
+
+              {/* Bucket 7 Tier D Phase 2: BATCH mode adds a link-to-batch
+                  strip under every material row. Shows the linked child
+                  batch + a required-quantity input + a green/red
+                  availability badge. Reads from batchLinks (persisted in
+                  batch.overrides.composition_links). Only rendered when
+                  viewing a BATCH DPP (isBatchMode) and not the picker
+                  overlay above. */}
+              {isBatchMode && (() => {
+                const link = batchLinks[c.id];
+                const avail = link?.linked_batch_uuid ? availability[link.linked_batch_uuid] : null;
+                const required = link?.required_quantity;
+                const remaining = avail?.remaining_quantity;
+                const short = link && remaining != null && required != null && required > remaining;
+                const ok = link && remaining != null && required != null && required <= remaining;
+                return (
+                  <div style={{ marginLeft: 20, marginTop: 4, padding: "8px 12px", borderRadius: 8, background: short ? (T.redSoft || "#FEE2E2") : (link ? T.accentSoft + "40" : T.bgSoft), border: `1px solid ${short ? T.red : (link ? T.accent : T.borderLight)}`, display: "flex", alignItems: "center", gap: 10, fontSize: 11, flexWrap: "wrap" }}>
+                    <I d={ic.link || ic.clip} size={12} color={short ? T.red : (link ? T.accentDark : T.textSec)} />
+                    {link ? (<>
+                      <span style={{ fontWeight: 700, color: short ? T.red : T.accentDark }}>
+                        {it ? "Da batch:" : "From batch:"} {link.linked_batch_label || dppId("batch", link.linked_batch_public_id, link.linked_batch_uuid)}
+                      </span>
+                      <span style={{ color: T.textSec }}>·</span>
+                      <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+                        <span style={{ color: T.textSec }}>{it ? "Richiesta:" : "Required:"}</span>
+                        {editMode ? (
+                          <input
+                            type="number" step="0.01" min="0"
+                            defaultValue={link.required_quantity ?? ""}
+                            onBlur={e => setRequiredQty(c.id, e.target.value)}
+                            onKeyDown={e => { if (e.key === "Enter") e.currentTarget.blur(); }}
+                            style={{ width: 70, padding: "3px 6px", borderRadius: 4, border: `1px solid ${T.border}`, fontSize: 11, fontFamily: font, outline: "none" }} />
+                        ) : (
+                          <span style={{ fontWeight: 700, color: T.textDark }}>{required ?? "—"}</span>
+                        )}
+                        <span style={{ fontWeight: 700, color: T.textDark }}>{link.required_unit || avail?.available_unit || ""}</span>
+                      </span>
+                      {avail && (
+                        <span style={{ color: T.textSec }}>
+                          · {it?"Rimanente":"Remaining"}: <strong style={{ color: short ? T.red : (ok ? T.accentDark : T.textDark) }}>{remaining ?? "?"}</strong>
+                          {avail.available_quantity != null && <span style={{ color: T.textSec }}> / {avail.available_quantity} {avail.available_unit || ""}</span>}
+                        </span>
+                      )}
+                      {short && (
+                        <span title={it?"La quantità richiesta supera il rimanente del batch collegato":"Required amount exceeds the linked batch's remaining stock"} style={{ display: "inline-flex", alignItems: "center", gap: 3, padding: "2px 8px", borderRadius: 999, background: T.red, color: "#fff", fontWeight: 700, fontSize: 10 }}>
+                          <I d={ic.alert} size={9} color="#fff" />
+                          {it?"CARENZA":"SHORTFALL"}
+                        </span>
+                      )}
+                      {ok && (
+                        <span style={{ display: "inline-flex", alignItems: "center", gap: 3, padding: "2px 8px", borderRadius: 999, background: T.accent, color: T.navy, fontWeight: 700, fontSize: 10 }}>
+                          <I d={ic.check} size={9} color={T.navy} />
+                          {it?"OK":"OK"}
+                        </span>
+                      )}
+                      {editMode && (
+                        <div style={{ marginLeft: "auto", display: "flex", gap: 4 }}>
+                          <button onClick={() => setPickerFor(c.id)} title={it?"Cambia batch":"Change batch"} style={{ background: "none", border: `1px solid ${T.border}`, borderRadius: 4, padding: "3px 8px", cursor: "pointer", fontFamily: font, fontSize: 10, color: T.textSec }}><I d={ic.edit} size={10} color={T.textSec} /> {it?"Cambia":"Change"}</button>
+                          <button onClick={() => clearBatchLink(c.id)} title={it?"Rimuovi collegamento":"Unlink"} style={{ background: "none", border: `1px solid ${T.border}`, borderRadius: 4, padding: "3px 8px", cursor: "pointer", fontFamily: font, fontSize: 10, color: T.textSec }}><I d={ic.x} size={10} color={T.textSec} /></button>
+                        </div>
+                      )}
+                    </>) : (
+                      editMode ? (
+                        <button onClick={() => setPickerFor(c.id)} style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "4px 10px", borderRadius: 5, border: `1px dashed ${T.accent}`, background: "transparent", cursor: "pointer", fontFamily: font, fontSize: 11, fontWeight: 600, color: T.accentDark }}>
+                          <I d={ic.plus} size={10} color={T.accentDark} />
+                          {it?"Collega a un batch fornitore":"Link to a supplier batch"}
+                        </button>
+                      ) : (
+                        <span style={{ color: T.textSec, fontStyle: "italic" }}>{it?"Non collegato a un batch":"Not linked to a batch"}</span>
+                      )
+                    )}
+                  </div>
+                );
+              })()}
             </div>
           );})}
 
@@ -1507,6 +1692,82 @@ function ComponentiTab({ editMode, onNavigate, L, dppData, blankShell = false, p
           composition.packaging entries; add-row happens in the edit mode.
           Extractor doesn't fill this yet — entries are user-authored for now. */}
       <PackagingSection L={L} editMode={editMode} dppData={dppData} />
+
+      {/* Bucket 7 Tier D Phase 2: batch-picker modal. Opens when the user
+          clicks the "Link to a supplier batch" button on a composition row
+          inside a BATCH DPP. Filters by parent family_code by default (per
+          Option A "family filter chip pre-applied but removable"). Selecting
+          a batch applies the link and closes; the row's availability badge
+          renders once the child's availability endpoint responds. */}
+      {isBatchMode && pickerFor != null && (
+        <div onClick={() => setPickerFor(null)} style={{ position: "fixed", inset: 0, background: "rgba(15,23,41,0.6)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+          <div onClick={e => e.stopPropagation()} style={{ width: "100%", maxWidth: 640, maxHeight: "85vh", overflowY: "auto", background: T.bg, borderRadius: 12, boxShadow: "0 24px 48px rgba(0,0,0,0.2)", padding: 20 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+              <div style={{ fontSize: 15, fontWeight: 800, color: T.navy }}>{it?"Collega a un batch fornitore":"Link to a supplier batch"}</div>
+              <button onClick={() => setPickerFor(null)} style={{ background: "none", border: "none", cursor: "pointer", padding: 4 }}><I d={ic.x} size={16} color={T.textSec} /></button>
+            </div>
+            <div style={{ fontSize: 12, color: T.textSec, marginBottom: 12 }}>
+              {it
+                ? "Seleziona il batch che fornisce questo materiale. La disponibilità viene calcolata come quantità totale del batch meno la somma delle richieste già dichiarate dagli altri batch che vi si collegano."
+                : "Select the batch that supplies this material. Availability is computed as the child batch's total quantity minus the sum of requirements already declared by other parent batches."}
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+              <button onClick={() => setFamilyOnly(v => !v)} style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "5px 10px", borderRadius: 999, border: `1px solid ${familyOnly ? T.accent : T.border}`, background: familyOnly ? T.accentSoft : T.bg, cursor: "pointer", fontFamily: font, fontSize: 11, fontWeight: 600, color: familyOnly ? T.accentDark : T.textSec }}>
+                <I d={familyOnly ? ic.check : ic.x} size={10} color={familyOnly ? T.accentDark : T.textSec} />
+                {it?"Solo stessa famiglia":"Same family only"}
+              </button>
+              <span style={{ fontSize: 10, color: T.textSec }}>
+                {batchesLoading ? (it?"Caricamento…":"Loading…") : `${availableBatches.length} ${it?"batch disponibili":"batches available"}`}
+              </span>
+            </div>
+            {linkError && (
+              <div style={{ marginBottom: 10, padding: "8px 10px", borderRadius: 6, background: T.redSoft || "#FEE2E2", color: T.red, fontSize: 12 }}>{linkError}</div>
+            )}
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              {availableBatches.length === 0 && !batchesLoading && (
+                <div style={{ padding: "18px 12px", textAlign: "center", color: T.textSec, fontSize: 12, fontStyle: "italic", borderRadius: 8, border: `1px dashed ${T.border}` }}>
+                  {it
+                    ? "Nessun batch corrisponde al filtro. Prova a rimuovere il filtro famiglia."
+                    : "No batches match the filter. Try removing the family filter."}
+                </div>
+              )}
+              {availableBatches.map(b => {
+                const remaining = b.remaining_quantity;
+                const totalAvail = b.available_quantity;
+                const isUnknown = totalAvail == null;
+                return (
+                  <button key={b.id} onClick={() => applyBatchLink(pickerFor, b)} disabled={linkSaving} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", borderRadius: 8, border: `1px solid ${T.border}`, background: T.bg, cursor: linkSaving?"wait":"pointer", fontFamily: font, textAlign: "left" }} onMouseEnter={e=>{if(!linkSaving)e.currentTarget.style.borderColor=T.accent;}} onMouseLeave={e=>e.currentTarget.style.borderColor=T.border}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 2 }}>
+                        <span style={{ fontSize: 13, fontWeight: 700, color: T.textDark }}>{b.lot || b.parent_product_name || "—"}</span>
+                        {b.public_id != null && <Badge color={T.accentDark||T.accent} bg={T.accentSoft}>{dppId("batch", b.public_id, b.id)}</Badge>}
+                        {b.parent_family_code && <Badge color={T.textSec} bg={T.bgSoft}>{b.parent_family_code}</Badge>}
+                      </div>
+                      <div style={{ fontSize: 11, color: T.textSec }}>
+                        {b.parent_product_name || ""}
+                        {b.site ? ` · ${b.site}` : ""}
+                      </div>
+                    </div>
+                    <div style={{ textAlign: "right", flexShrink: 0, fontSize: 11 }}>
+                      {isUnknown ? (
+                        <span style={{ color: T.amber, fontStyle: "italic" }}>{it?"Quantità non impostata":"Quantity not set"}</span>
+                      ) : (
+                        <>
+                          <div style={{ color: T.textSec, fontSize: 10 }}>{it?"Rimanente":"Remaining"}</div>
+                          <div style={{ fontSize: 13, fontWeight: 700, color: (remaining ?? 0) > 0 ? T.accentDark : T.red, fontFamily: "'JetBrains Mono',monospace" }}>
+                            {remaining ?? "?"} {b.available_unit || ""}
+                          </div>
+                          <div style={{ fontSize: 9, color: T.textSec }}>{it?"su":"of"} {totalAvail} {b.available_unit || ""}</div>
+                        </>
+                      )}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Responsibility */}
       {components.filter(c => c.linked).length > 0 && (
@@ -3879,7 +4140,7 @@ body{font-family:'Inter',sans-serif;color:#1E293B;font-size:12px;line-height:1.5
       <SupplyMap dppData={product?.dppData} />
     </>);
     }
-    case "composizione": return (<ComponentiTab editMode={false} onNavigate={onNavigate} L={L} dppData={product?.dppData} product={product} onSave={onSave} onReloadProduct={onReloadProduct} />);
+    case "composizione": return (<ComponentiTab editMode={false} onNavigate={onNavigate} L={L} dppData={product?.dppData} product={product} onSave={onSave} onReloadProduct={onReloadProduct} batch={dppLevel === "batch" ? currentBatch : null} />);
     case "prestazioni": {
       if (hasAI) {
         const vals = pp?.performance?.values || [];
