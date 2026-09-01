@@ -597,9 +597,9 @@ function EuFundingDisclaimer({ L }) {
           </span>
           <I d={ic.chevRight} size={9} color={T.textMuted} style={{ transform: open ? "rotate(90deg)" : "none", transition: "transform .15s", flexShrink: 0, opacity: 0.7 }} />
         </div>
-        {/* Grant IDs shown by default — the collapsed card already tells
-            the user what they need to cite; expand for the full sentence
-            and the More-info link. */}
+        {/* Grant ID shown by default — the collapsed card already tells
+            the user what they need to cite; expand for the full sentence,
+            the EU-view disclaimer, the funder logos, and the More-info link. */}
         <div style={{
           fontSize: 9,
           color: T.textMuted,
@@ -608,11 +608,19 @@ function EuFundingDisclaimer({ L }) {
           letterSpacing: "0.02em",
           marginTop: 5,
         }}>
-          GA 101136597 · 101091494
+          RURBANIVE · GA 101136597
         </div>
       </button>
       {open && (
-        <div style={{ position: "absolute", left: "calc(100% + 8px)", bottom: 0, width: 320, padding: "14px 16px", borderRadius: 8, background: T.bg, border: `1px solid ${T.border}`, boxShadow: "0 12px 32px rgba(0,0,0,0.18)", zIndex: 100, color: T.textDark }}>
+        <div style={{ position: "absolute", left: "calc(100% + 8px)", bottom: 0, width: 420, padding: "16px 18px", borderRadius: 8, background: T.bg, border: `1px solid ${T.border}`, boxShadow: "0 12px 32px rgba(0,0,0,0.18)", zIndex: 100, color: T.textDark }}>
+          {/* Sept 1 client feedback: 3 funder logos across the top of the
+              popover, mirroring the AGRO.Build.ER landing page footer.
+              Sourced from the same static bind-mount at /agrobuilder/*. */}
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-around", gap: 12, paddingBottom: 12, marginBottom: 12, borderBottom: `1px solid ${T.borderLight}` }}>
+            <img src="/agrobuilder/rurbanive-logo.png" alt="RURBANIVE" style={{ height: 34, maxWidth: 110, objectFit: "contain" }} onError={e=>{e.currentTarget.style.display="none";}} />
+            <img src="/agrobuilder/eu-funded-logo.png" alt="Funded by the European Union" style={{ height: 34, maxWidth: 130, objectFit: "contain" }} onError={e=>{e.currentTarget.style.display="none";}} />
+            <img src="/agrobuilder/agribuilder-logo.jpg" alt="AGRO.Build.ER" style={{ height: 34, maxWidth: 110, objectFit: "contain" }} onError={e=>{e.currentTarget.style.display="none";}} />
+          </div>
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
             <span style={{
               fontSize: 10, fontWeight: 800, letterSpacing: "0.08em",
@@ -623,18 +631,18 @@ function EuFundingDisclaimer({ L }) {
               {it ? "Progetto finanziato" : "Funded project"}
             </span>
           </div>
-          <div style={{ fontSize: 11.5, color: T.textSec, lineHeight: 1.55, marginBottom: 12 }}>
+          {/* Grant + scope statement — verbatim from client's Sept 1 note. */}
+          <div style={{ fontSize: 11.5, color: T.textSec, lineHeight: 1.55, marginBottom: 10 }}>
             {it
-              ? "Il progetto ha ricevuto finanziamenti dall'Unione Europea nell'ambito degli accordi di sovvenzione:"
-              : "This project received funding from the European Union under Grant Agreements:"}
+              ? "Questo progetto ha ricevuto finanziamenti attraverso l'Open Call RURBANIVE (Grant agreement ID: 101136597). Il finanziamento copre l'integrazione di funzionalità basate su AI e analisi dei dati per abilitare la compilazione automatica dei DPP e l'ottimizzazione della catena di fornitura."
+              : "This project has received funding through the RURBANIVE Open Call (Grant agreement ID: 101136597). The funding covers the integration of AI-based functionalities and data analytics for enabling automatic compilation of DPP and supply chain optimization."}
           </div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 5, marginBottom: 12 }}>
-            {["101136597", "101091494"].map(ga => (
-              <div key={ga} style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 10px", borderRadius: 5, background: T.bgSoft, border: `1px solid ${T.borderLight}` }}>
-                <span style={{ fontSize: 9, fontWeight: 700, color: T.textSec, letterSpacing: "0.05em" }}>GA</span>
-                <span style={{ flex: 1, fontSize: 12, fontWeight: 600, color: T.textDark, fontFamily: "'JetBrains Mono','SF Mono',monospace" }}>{ga}</span>
-              </div>
-            ))}
+          {/* EU standard views-and-opinions disclaimer — required accompanying
+              text under Horizon Europe / REA grant rules. */}
+          <div style={{ fontSize: 10.5, color: T.textSec, lineHeight: 1.5, marginBottom: 12, fontStyle: "italic", padding: "8px 10px", background: T.bgSoft, borderRadius: 6, borderLeft: `3px solid ${T.accent}` }}>
+            {it
+              ? "Finanziato dall'Unione Europea. I punti di vista e le opinioni espressi sono tuttavia esclusivamente quelli dell'autore/degli autori e non riflettono necessariamente quelli dell'Unione Europea o dell'Agenzia esecutiva europea per la ricerca. Né l'Unione Europea né l'autorità concedente possono essere ritenute responsabili di essi."
+              : "Funded by the European Union. Views and opinions expressed are however those of the author(s) only and do not necessarily reflect those of the European Union or the European Research Executive Agency. Neither the European Union nor the granting authority can be held responsible for them."}
           </div>
           <a
             href="https://deeppy.eu/agrobuilder"
