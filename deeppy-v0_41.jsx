@@ -615,11 +615,27 @@ function EuFundingDisclaimer({ L }) {
         <div style={{ position: "absolute", left: "calc(100% + 8px)", bottom: 0, width: 420, padding: "16px 18px", borderRadius: 8, background: T.bg, border: `1px solid ${T.border}`, boxShadow: "0 12px 32px rgba(0,0,0,0.18)", zIndex: 100, color: T.textDark }}>
           {/* Sept 1 client feedback: 3 funder logos across the top of the
               popover, mirroring the AGRO.Build.ER landing page footer.
-              Sourced from the same static bind-mount at /agrobuilder/*. */}
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-around", gap: 12, paddingBottom: 12, marginBottom: 12, borderBottom: `1px solid ${T.borderLight}` }}>
-            <img src="/agrobuilder/rurbanive-logo.png" alt="RURBANIVE" style={{ height: 34, maxWidth: 110, objectFit: "contain" }} onError={e=>{e.currentTarget.style.display="none";}} />
-            <img src="/agrobuilder/eu-funded-logo.png" alt="Funded by the European Union" style={{ height: 34, maxWidth: 130, objectFit: "contain" }} onError={e=>{e.currentTarget.style.display="none";}} />
-            <img src="/agrobuilder/agribuilder-logo.jpg" alt="AGRO.Build.ER" style={{ height: 34, maxWidth: 110, objectFit: "contain" }} onError={e=>{e.currentTarget.style.display="none";}} />
+              Sourced from the same static bind-mount at /agrobuilder/*.
+              The EU "Funded by the European Union" emblem is ~4.5:1 aspect
+              ratio (wide) — bumped its width allowance so the text isn't
+              chopped. Loads `funded-by-eu.png` first (the correct variant
+              per Sept 2 client note), falls back to the legacy filename. */}
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, paddingBottom: 12, marginBottom: 12, borderBottom: `1px solid ${T.borderLight}` }}>
+            <img src="/agrobuilder/rurbanive-logo.png" alt="RURBANIVE" style={{ height: 40, maxWidth: 110, objectFit: "contain", flexShrink: 0 }} onError={e=>{e.currentTarget.style.display="none";}} />
+            <img
+              src="/agrobuilder/funded-by-eu.png"
+              alt="Funded by the European Union"
+              style={{ height: 40, maxWidth: 190, objectFit: "contain", flexShrink: 0 }}
+              onError={e=>{
+                if (e.currentTarget.dataset.fb !== "1") {
+                  e.currentTarget.dataset.fb = "1";
+                  e.currentTarget.src = "/agrobuilder/eu-funded-logo.png";
+                } else {
+                  e.currentTarget.style.display = "none";
+                }
+              }}
+            />
+            <img src="/agrobuilder/agribuilder-logo.jpg" alt="AGRO.Build.ER" style={{ height: 40, maxWidth: 110, objectFit: "contain", flexShrink: 0 }} onError={e=>{e.currentTarget.style.display="none";}} />
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
             <span style={{
