@@ -622,19 +622,27 @@ function EuFundingDisclaimer({ L }) {
               per Sept 2 client note), falls back to the legacy filename. */}
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, paddingBottom: 12, marginBottom: 12, borderBottom: `1px solid ${T.borderLight}` }}>
             <img src="/agrobuilder/rurbanive-logo.png" alt="RURBANIVE" style={{ height: 40, maxWidth: 110, objectFit: "contain", flexShrink: 0 }} onError={e=>{e.currentTarget.style.display="none";}} />
-            <img
-              src="/agrobuilder/funded-by-eu.png"
-              alt="Funded by the European Union"
-              style={{ height: 40, maxWidth: 190, objectFit: "contain", flexShrink: 0 }}
-              onError={e=>{
-                if (e.currentTarget.dataset.fb !== "1") {
-                  e.currentTarget.dataset.fb = "1";
-                  e.currentTarget.src = "/agrobuilder/eu-funded-logo.png";
-                } else {
-                  e.currentTarget.style.display = "none";
-                }
-              }}
-            />
+            {/* EU emblem is the reversed/negative variant (white text meant
+                for dark backgrounds). Until the positive variant lands, wrap
+                it in a navy tile so the "Co-funded by the European Union"
+                wordmark reads properly. Once funded-by-eu.png (positive) is
+                uploaded, the tile becomes redundant but doesn't hurt — swap
+                background back to transparent then. */}
+            <div style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", padding: "6px 10px", borderRadius: 6, background: T.navy, flexShrink: 0 }}>
+              <img
+                src="/agrobuilder/funded-by-eu.png"
+                alt="Funded by the European Union"
+                style={{ height: 32, maxWidth: 180, objectFit: "contain", display: "block" }}
+                onError={e=>{
+                  if (e.currentTarget.dataset.fb !== "1") {
+                    e.currentTarget.dataset.fb = "1";
+                    e.currentTarget.src = "/agrobuilder/eu-funded-logo.png";
+                  } else {
+                    e.currentTarget.style.display = "none";
+                  }
+                }}
+              />
+            </div>
             <img src="/agrobuilder/agribuilder-logo.jpg" alt="AGRO.Build.ER" style={{ height: 40, maxWidth: 110, objectFit: "contain", flexShrink: 0 }} onError={e=>{e.currentTarget.style.display="none";}} />
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
