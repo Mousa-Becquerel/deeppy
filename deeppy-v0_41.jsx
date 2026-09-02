@@ -623,10 +623,14 @@ function EuFundingDisclaimer({ L }) {
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, paddingBottom: 12, marginBottom: 12, borderBottom: `1px solid ${T.borderLight}` }}>
             <img src="/agrobuilder/rurbanive-logo.png" alt="RURBANIVE" style={{ height: 40, maxWidth: 110, objectFit: "contain", flexShrink: 0 }} onError={e=>{e.currentTarget.style.display="none";}} />
             <img
-              src="/agrobuilder/funded-by-eu.png"
+              src="/agrobuilder/funded-by-eu.png?v=2"
               alt="Funded by the European Union"
               style={{ height: 40, maxWidth: 190, objectFit: "contain", flexShrink: 0 }}
               onError={e=>{
+                // Cache-bust query above forces re-fetch of the (now-uploaded)
+                // positive variant, sidestepping any stale 404 from earlier
+                // attempts. Fallback stays wired to the legacy filename in
+                // case the file disappears.
                 if (e.currentTarget.dataset.fb !== "1") {
                   e.currentTarget.dataset.fb = "1";
                   e.currentTarget.src = "/agrobuilder/eu-funded-logo.png";
