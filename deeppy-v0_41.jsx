@@ -5736,7 +5736,7 @@ function NewLandingPage({ onNavigate, L }) {
           <div className="hg" style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 24 }}>
             {t.how.steps.map((s, i) => (
               <div key={i}>
-                <div style={{ fontSize: 48, fontWeight: 800, color: $T.accentSoft, letterSpacing: "-0.04em", marginBottom: 12 }}>{s.n}</div>
+                <div style={{ fontSize: 48, fontWeight: 800, color: $T.accent, opacity: 0.7, letterSpacing: "-0.04em", marginBottom: 12 }}>{s.n}</div>
                 <div style={{ width: 44, height: 44, borderRadius: 12, background: $T.navy, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 16 }}><$I d={$ic[s.ic]} size={22} color={$T.accent} /></div>
                 <h3 style={{ fontSize: 17, fontWeight: 700, color: $T.navy, lineHeight: 1.3, marginBottom: 10 }}>{s.h}</h3>
                 <p style={{ fontSize: 13, color: $T.textSec, lineHeight: 1.65 }}>{s.p}</p>
@@ -5833,7 +5833,7 @@ function NewLandingPage({ onNavigate, L }) {
           (replaces the previous one-line EU footnote). Light background
           so all official logos work in their natural colour palette.
           Positioned above the dark corporate footer. */}
-      <section id="funding" className="sp" style={{ padding: "40px 24px 36px", background: "#F8FAFB", borderTop: `1px solid ${$T.border}` }}>
+      <section id="funding" className="sp" style={{ padding: "40px 24px 36px", background: "#fff", borderTop: `1px solid ${$T.border}` }}>
         <div style={{ maxWidth: 1020, margin: "0 auto" }}>
           {/* Logos row — same 3 as the sidebar disclaimer (InTransit / EU / Rurbanive) */}
           <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 40, flexWrap: "wrap", marginBottom: 22 }}>
