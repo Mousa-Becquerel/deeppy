@@ -764,10 +764,43 @@ async def list_catalog_public():
                 "family_code": p.family_code,
                 "company_name": companies.get(p.company_id),
                 "kpis": _catalog_kpis(p.passport or {}),
-                "image_url": _catalog_image_url(p),
+                # image_url returns a public image endpoint (below) rather than
+                # the auth-gated /api/catalog/{id}/documents/{id} route, so the
+                # landing page shows real cover images to anonymous visitors.
+                "image_url": f"/api/catalog/public/{p.id}/image" if _catalog_image_url(p) else None,
             }
             for p in rows
         ]
+
+
+# Public cover-image handler used by the landing preview strip. Only
+# serves images (checks extension) and only for status='published'
+# products, so it can't be used to enumerate arbitrary uploads.
+@app.get("/api/catalog/public/{product_id}/image")
+async def get_catalog_public_image(product_id: str):
+    with session_scope() as db:
+        product = repo.get_product(db, product_id)
+        if not product or product.status != "published":
+            raise HTTPException(404, "Not found")
+        docs = getattr(product, "documents", None) or []
+        doc = next((d for d in docs if getattr(d, "doc_type", None) == "product_image"), None)
+        if not doc:
+            doc = next(
+                (d for d in docs
+                 if (getattr(d, "filename", "") or "").lower().rsplit(".", 1)[-1] in _IMG_EXT_RE),
+                None,
+            )
+        if not doc or not doc.storage_path:
+            raise HTTPException(404, "Not found")
+        try:
+            resolved = Path(doc.storage_path).resolve(strict=False)
+            uploads_root = UPLOADS_DIR.resolve(strict=False)
+            resolved.relative_to(uploads_root)
+        except (ValueError, OSError):
+            raise HTTPException(404, "Not found")
+        if not resolved.exists():
+            raise HTTPException(404, "Not found")
+        return FileResponse(str(resolved), filename=doc.filename)
 
 
 @app.get("/api/catalog/{product_id}")
