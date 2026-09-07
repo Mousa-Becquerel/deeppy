@@ -5864,9 +5864,20 @@ function NewLandingPage({ onNavigate, L }) {
       {/* ─── FOOTER (compact, with vision line) ─── */}
       <footer className="sp" style={{ padding: "32px 24px 28px", background: $T.navy, borderTop: `1px solid ${$T.navyMid}` }}>
         <div style={{ maxWidth: 1020, margin: "0 auto" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14 }}>
-            <img src={LOGO_SRC} alt="DeePPy" style={{ height: 24, width: 24, objectFit: "cover", borderRadius: 6, opacity: 0.85 }} />
-            <span style={{ fontSize: 14, fontWeight: 800, color: $T.text, opacity: 0.85 }}>DeePPy</span>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 24, marginBottom: 14, flexWrap: "wrap" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <img src={LOGO_SRC} alt="DeePPy" style={{ height: 24, width: 24, objectFit: "cover", borderRadius: 6, opacity: 0.85 }} />
+              <span style={{ fontSize: 14, fontWeight: 800, color: $T.text, opacity: 0.85 }}>DeePPy</span>
+            </div>
+            {/* Sept 7 client feedback: white Rurbanive variant from the
+                press kit, placed on the dark corporate footer where the
+                color logo wouldn't read. */}
+            <img
+              src="/agrobuilder/rurbanive-logo-white.png?v=1"
+              alt="Rurbanive"
+              style={{ height: 34, maxWidth: 200, objectFit: "contain", opacity: 0.9 }}
+              onError={e=>{e.currentTarget.style.display="none";}}
+            />
           </div>
           <p style={{ fontSize: 12, color: $T.textMuted, lineHeight: 1.9 }}>
             © 2026 DeePPy by <a href="https://www.levery.it/" target="_blank" rel="noopener noreferrer" style={{ color: $T.textMuted, textDecoration: "none" }}>Levery S.r.l. Società Benefit</a> — Via Pisino 66, 47814 Bellaria Igea Marina (RN), Italy<br />
