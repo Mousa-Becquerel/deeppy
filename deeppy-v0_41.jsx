@@ -597,9 +597,10 @@ function EuFundingDisclaimer({ L }) {
           </span>
           <I d={ic.chevRight} size={9} color={T.textMuted} style={{ transform: open ? "rotate(90deg)" : "none", transition: "transform .15s", flexShrink: 0, opacity: 0.7 }} />
         </div>
-        {/* Grant ID shown by default — the collapsed card already tells
+        {/* Grant IDs shown by default — the collapsed card already tells
             the user what they need to cite; expand for the full sentence,
-            the EU-view disclaimer, the funder logos, and the More-info link. */}
+            the EU-view disclaimer, the funder logos, and the More-info link.
+            Sept 7 attribution correction: two separate grants, not one. */}
         <div style={{
           fontSize: 9,
           color: T.textMuted,
@@ -608,29 +609,26 @@ function EuFundingDisclaimer({ L }) {
           letterSpacing: "0.02em",
           marginTop: 5,
         }}>
-          RURBANIVE · GA 101136597
+          InTransit · Rurbanive
         </div>
       </button>
       {open && (
         <div style={{ position: "absolute", left: "calc(100% + 8px)", bottom: 0, width: 420, padding: "16px 18px", borderRadius: 8, background: T.bg, border: `1px solid ${T.border}`, boxShadow: "0 12px 32px rgba(0,0,0,0.18)", zIndex: 100, color: T.textDark }}>
-          {/* Sept 1 client feedback: 3 funder logos across the top of the
-              popover, mirroring the AGRO.Build.ER landing page footer.
-              Sourced from the same static bind-mount at /agrobuilder/*.
-              The EU "Funded by the European Union" emblem is ~4.5:1 aspect
-              ratio (wide) — bumped its width allowance so the text isn't
-              chopped. Loads `funded-by-eu.png` first (the correct variant
-              per Sept 2 client note), falls back to the legacy filename. */}
+          {/* Sept 7 client feedback: two-grant attribution.
+              - InTransit  (GA 101136597) — RURBANIVE Open Call recipient
+              - Rurbanive  (GA 101091494) — parent programme grant
+              Emblem row now carries: EU "Funded by" positive variant
+              (center, wider allowance for its ~4.5:1 aspect), InTransit
+              logo (left), Rurbanive logo (right). Files served from the
+              bind-mount at /agrobuilder/*; onError silently hides any
+              file that hasn't been uploaded yet. */}
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, paddingBottom: 12, marginBottom: 12, borderBottom: `1px solid ${T.borderLight}` }}>
-            <img src="/agrobuilder/rurbanive-logo.png" alt="RURBANIVE" style={{ height: 40, maxWidth: 110, objectFit: "contain", flexShrink: 0 }} onError={e=>{e.currentTarget.style.display="none";}} />
+            <img src="/agrobuilder/intransit-logo.png" alt="InTransit" style={{ height: 40, maxWidth: 100, objectFit: "contain", flexShrink: 0 }} onError={e=>{e.currentTarget.style.display="none";}} />
             <img
               src="/agrobuilder/funded-by-eu.png?v=2"
               alt="Funded by the European Union"
-              style={{ height: 40, maxWidth: 190, objectFit: "contain", flexShrink: 0 }}
+              style={{ height: 40, maxWidth: 180, objectFit: "contain", flexShrink: 0 }}
               onError={e=>{
-                // Cache-bust query above forces re-fetch of the (now-uploaded)
-                // positive variant, sidestepping any stale 404 from earlier
-                // attempts. Fallback stays wired to the legacy filename in
-                // case the file disappears.
                 if (e.currentTarget.dataset.fb !== "1") {
                   e.currentTarget.dataset.fb = "1";
                   e.currentTarget.src = "/agrobuilder/eu-funded-logo.png";
@@ -639,7 +637,7 @@ function EuFundingDisclaimer({ L }) {
                 }
               }}
             />
-            <img src="/agrobuilder/agribuilder-logo.jpg" alt="AGRO.Build.ER" style={{ height: 40, maxWidth: 110, objectFit: "contain", flexShrink: 0 }} onError={e=>{e.currentTarget.style.display="none";}} />
+            <img src="/agrobuilder/rurbanive-logo.png" alt="Rurbanive" style={{ height: 40, maxWidth: 100, objectFit: "contain", flexShrink: 0 }} onError={e=>{e.currentTarget.style.display="none";}} />
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
             <span style={{
@@ -651,11 +649,28 @@ function EuFundingDisclaimer({ L }) {
               {it ? "Progetto finanziato" : "Funded project"}
             </span>
           </div>
-          {/* Grant + scope statement — verbatim from client's Sept 1 note. */}
-          <div style={{ fontSize: 11.5, color: T.textSec, lineHeight: 1.55, marginBottom: 10 }}>
+          {/* Grant + scope statement — Sept 7 attribution correction:
+              InTransit and Rurbanive are two separate grants, both funding
+              this project. Text combines the scope statement (RURBANIVE
+              Open Call covered the AI compilation + supply chain work)
+              with the correct two-GA attribution. */}
+          <div style={{ fontSize: 11.5, color: T.textSec, lineHeight: 1.55, marginBottom: 8 }}>
             {it
-              ? "Questo progetto ha ricevuto finanziamenti attraverso l'Open Call RURBANIVE (Grant agreement ID: 101136597). Il finanziamento copre l'integrazione di funzionalità basate su AI e analisi dei dati per abilitare la compilazione automatica dei DPP e l'ottimizzazione della catena di fornitura."
-              : "This project has received funding through the RURBANIVE Open Call (Grant agreement ID: 101136597). The funding covers the integration of AI-based functionalities and data analytics for enabling automatic compilation of DPP and supply chain optimization."}
+              ? "Questo progetto ha ricevuto finanziamenti dall'Unione Europea:"
+              : "This project received funding from the European Union:"}
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 4, marginBottom: 10 }}>
+            <div style={{ fontSize: 11.5, color: T.textDark }}>
+              <strong style={{ color: T.navy }}>InTransit</strong> — {it?"Grant Agreement ID":"Grant Agreement ID"} <span style={{ fontFamily: "'JetBrains Mono','SF Mono',monospace" }}>101136597</span>
+            </div>
+            <div style={{ fontSize: 11.5, color: T.textDark }}>
+              <strong style={{ color: T.navy }}>Rurbanive</strong> — {it?"Grant Agreement ID":"Grant Agreement ID"} <span style={{ fontFamily: "'JetBrains Mono','SF Mono',monospace" }}>101091494</span>
+            </div>
+          </div>
+          <div style={{ fontSize: 11, color: T.textSec, lineHeight: 1.55, marginBottom: 10, fontStyle: "italic" }}>
+            {it
+              ? "Il finanziamento InTransit copre l'integrazione di funzionalità basate su AI e analisi dei dati per la compilazione automatica dei DPP e l'ottimizzazione della catena di fornitura."
+              : "InTransit funding covers the integration of AI-based functionalities and data analytics for automatic DPP compilation and supply chain optimization."}
           </div>
           {/* EU standard views-and-opinions disclaimer — required accompanying
               text under Horizon Europe / REA grant rules. */}
@@ -5519,6 +5534,85 @@ const $FeatPanel = ({ ex, t }) => {
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // MAIN LANDING
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Sept 7 client feedback (B): section on deeppy.eu that showcases real
+// published DPPs from the platform's catalog. Fetches /api/catalog once
+// on mount; cards navigate the visitor into the catalog view. Falls
+// back silently to nothing when the API is unreachable or the tenant
+// has no published items yet.
+function PublishedDppsSection({ onNavigate, lang, T: $T, ic: $ic, Btn: $Btn }) {
+  const it = lang === "it";
+  const [rows, setRows] = useState([]);
+  const [loading, setLoading] = useState(true);
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/catalog", { credentials: "include" })
+      .then(r => r.ok ? r.json() : [])
+      .then(data => {
+        if (cancelled) return;
+        setRows(Array.isArray(data) ? data : []);
+        setLoading(false);
+      })
+      .catch(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, []);
+  // Cap at 6 so the section stays a "preview strip"; clicking any card sends
+  // the visitor into the full catalog where they can browse everything.
+  const shown = rows.slice(0, 6);
+  if (!loading && !shown.length) return null;   // hide section entirely when no published DPPs
+  return (
+    <section id="published" data-track-section className="sp" style={{ padding: "72px 24px", background: $T.bgSoft }}>
+      <div style={{ maxWidth: 1020, margin: "0 auto" }}>
+        <div style={{ textAlign: "center", marginBottom: 32 }}>
+          <h2 style={{ fontSize: 30, fontWeight: 800, color: $T.navy, marginBottom: 10 }}>
+            {it ? "DPP pubblicati" : "Published DPPs"}
+          </h2>
+          <p style={{ fontSize: 15, color: $T.textSec, lineHeight: 1.6, maxWidth: 620, margin: "0 auto" }}>
+            {it
+              ? "Alcuni dei passaporti digitali già pubblicati sulla piattaforma dai nostri produttori."
+              : "Some of the digital product passports already published on the platform by our manufacturers."}
+          </p>
+        </div>
+        {loading ? (
+          <div style={{ textAlign: "center", padding: 24, color: $T.textSec, fontSize: 13 }}>{it ? "Caricamento…" : "Loading…"}</div>
+        ) : (
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 14 }}>
+            {shown.map(p => (
+              <button
+                key={p.id}
+                onClick={() => onNavigate("catalog")}
+                style={{ display: "flex", gap: 14, alignItems: "flex-start", padding: 16, borderRadius: 12, background: "#fff", border: `1px solid ${$T.border}`, cursor: "pointer", fontFamily: font, textAlign: "left", transition: "border-color .15s, box-shadow .15s" }}
+                onMouseEnter={e=>{ e.currentTarget.style.borderColor = $T.accent; e.currentTarget.style.boxShadow = `0 4px 16px rgba(46,196,160,0.08)`; }}
+                onMouseLeave={e=>{ e.currentTarget.style.borderColor = $T.border; e.currentTarget.style.boxShadow = "none"; }}
+              >
+                {p.image_url
+                  ? <img src={p.image_url} alt={p.name || ""} style={{ width: 56, height: 56, borderRadius: 10, objectFit: "cover", background: $T.bgSoft, border: `1px solid ${$T.border}`, flexShrink: 0 }} onError={e=>{e.currentTarget.style.display="none";}} />
+                  : <div style={{ width: 56, height: 56, borderRadius: 10, background: $T.navy, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                      <span style={{ color: $T.accent, fontWeight: 800, fontSize: 11 }}>{(p.family_code || "DPP").slice(0, 3).toUpperCase()}</span>
+                    </div>}
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: $T.navy, marginBottom: 3, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.name || "—"}</div>
+                  <div style={{ fontSize: 11, color: $T.textSec, marginBottom: 6, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.manufacturer || p.company_name || ""}</div>
+                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                    {p.family_code && <span style={{ padding: "2px 8px", borderRadius: 999, background: $T.bgSoft, color: $T.navy, fontSize: 10, fontWeight: 700, letterSpacing: "0.03em" }}>{p.family_code}</span>}
+                    {p.kpis?.gwp_total != null && <span style={{ padding: "2px 8px", borderRadius: 999, background: $T.accentSoft, color: $T.accent, fontSize: 10, fontWeight: 700 }}>{p.kpis.gwp_total} kgCO₂e</span>}
+                  </div>
+                </div>
+              </button>
+            ))}
+          </div>
+        )}
+        {shown.length > 0 && (
+          <div style={{ textAlign: "center", marginTop: 24 }}>
+            <button onClick={() => onNavigate("catalog")} style={{ padding: "10px 22px", borderRadius: 8, background: "none", border: `1px solid ${$T.accent}`, color: $T.accent, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: font }}>
+              {it ? "Vedi tutti nel catalogo →" : "See all in catalog →"}
+            </button>
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
 function NewLandingPage({ onNavigate, L }) {
   const lang = L.lang; const setLang = L.setLang;
   const [formOpen, setFormOpen] = useState(false);
@@ -5661,6 +5755,9 @@ function NewLandingPage({ onNavigate, L }) {
         </div>
       </section>
 
+      {/* Sept 7 client feedback: real published DPPs after How it works */}
+      <PublishedDppsSection onNavigate={onNavigate} lang={lang} T={$T} ic={$ic} Btn={$Btn} />
+
       {/* ─── CREDIBILITY ─── */}
       <section data-track-section id="cred" className="sp" style={{ padding: "48px 24px", background: $T.navy }}>
         <div style={{ maxWidth: 820, margin: "0 auto", display: "flex", gap: 20, justifyContent: "center", flexWrap: "wrap" }}>
@@ -5732,6 +5829,38 @@ function NewLandingPage({ onNavigate, L }) {
         <$Btn primary onClick={() => openForm("final_cta")} style={{ fontSize: 16, padding: "15px 40px" }}>{t.final.cta} <$I d={$ic.arrow} size={16} color={$T.navy} /></$Btn>
       </section>
 
+      {/* Sept 7 client feedback: proper funding acknowledgment banner
+          (replaces the previous one-line EU footnote). Light background
+          so all official logos work in their natural colour palette.
+          Positioned above the dark corporate footer. */}
+      <section id="funding" className="sp" style={{ padding: "40px 24px 36px", background: "#F8FAFB", borderTop: `1px solid ${$T.border}` }}>
+        <div style={{ maxWidth: 1020, margin: "0 auto" }}>
+          {/* Logos row — same 3 as the sidebar disclaimer (InTransit / EU / Rurbanive) */}
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 40, flexWrap: "wrap", marginBottom: 22 }}>
+            <img src="/agrobuilder/intransit-logo.png" alt="InTransit" style={{ height: 54, maxWidth: 160, objectFit: "contain" }} onError={e=>{e.currentTarget.style.display="none";}} />
+            <img src="/agrobuilder/funded-by-eu.png?v=2" alt="Funded by the European Union" style={{ height: 54, maxWidth: 240, objectFit: "contain" }} onError={e=>{e.currentTarget.style.display="none";}} />
+            <img src="/agrobuilder/rurbanive-logo.png" alt="Rurbanive" style={{ height: 54, maxWidth: 160, objectFit: "contain" }} onError={e=>{e.currentTarget.style.display="none";}} />
+          </div>
+          {/* Grant identifiers */}
+          <div style={{ display: "flex", flexDirection: "column", gap: 4, marginBottom: 14, textAlign: "center" }}>
+            <div style={{ fontSize: 13, color: $T.navy, fontWeight: 700 }}>
+              {lang === "it" ? "Questo progetto ha ricevuto finanziamenti dall'Unione Europea" : "This project received funding from the European Union"}
+            </div>
+            <div style={{ fontSize: 12, color: $T.textSec, lineHeight: 1.75 }}>
+              <strong style={{ color: $T.navy }}>InTransit</strong> Grant Agreement ID <span style={{ fontFamily: "'JetBrains Mono','SF Mono',monospace" }}>101136597</span>
+              &nbsp;·&nbsp;
+              <strong style={{ color: $T.navy }}>Rurbanive</strong> Grant Agreement ID <span style={{ fontFamily: "'JetBrains Mono','SF Mono',monospace" }}>101091494</span>
+            </div>
+          </div>
+          {/* REA views-and-opinions disclaimer — required under Horizon Europe */}
+          <p style={{ fontSize: 11, color: $T.textSec, lineHeight: 1.6, textAlign: "center", maxWidth: 780, margin: "0 auto", fontStyle: "italic" }}>
+            {lang === "it"
+              ? "Finanziato dall'Unione Europea. I punti di vista e le opinioni espressi sono tuttavia esclusivamente quelli dell'autore/degli autori e non riflettono necessariamente quelli dell'Unione Europea o dell'Agenzia esecutiva europea per la ricerca. Né l'Unione Europea né l'autorità concedente possono essere ritenute responsabili di essi."
+              : "Funded by the European Union. Views and opinions expressed are however those of the author(s) only and do not necessarily reflect those of the European Union or the European Research Executive Agency. Neither the European Union nor the granting authority can be held responsible for them."}
+          </p>
+        </div>
+      </section>
+
       {/* ─── FOOTER (compact, with vision line) ─── */}
       <footer className="sp" style={{ padding: "32px 24px 28px", background: $T.navy, borderTop: `1px solid ${$T.navyMid}` }}>
         <div style={{ maxWidth: 1020, margin: "0 auto" }}>
@@ -5743,7 +5872,6 @@ function NewLandingPage({ onNavigate, L }) {
             © 2026 DeePPy by <a href="https://www.levery.it/" target="_blank" rel="noopener noreferrer" style={{ color: $T.textMuted, textDecoration: "none" }}>Levery S.r.l. Società Benefit</a> — Via Pisino 66, 47814 Bellaria Igea Marina (RN), Italy<br />
             P.IVA 04730050400 — <a href="mailto:info@levery.it" style={{ color: $T.accent, textDecoration: "none" }}>info@levery.it</a> — <a href="#" style={{ color: $T.textMuted, textDecoration: "none" }}>Privacy</a> · <a href="#" style={{ color: $T.textMuted, textDecoration: "none" }}>{lang === "it" ? "Termini" : "Terms"}</a>
           </p>
-          <p style={{ fontSize: 11, color: $T.textMuted, marginTop: 12, opacity: 0.5 }}>{t.footer.eu}</p>
         </div>
       </footer>
 
