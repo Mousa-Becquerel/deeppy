@@ -812,6 +812,37 @@ async def list_catalog(user: dict = Depends(get_current_user)):
         ]
 
 
+# Sept 7 client feedback: the deeppy.eu landing page shows a preview
+# strip of real published passports to anonymous visitors. It hits this
+# endpoint (no auth) rather than /api/catalog (auth-gated) so the
+# section can render before a visitor logs in. Same shape as
+# /api/catalog minus per-viewer flags, capped at 12 rows to keep the
+# response light — the landing itself only shows 6.
+@app.get("/api/catalog/public")
+async def list_catalog_public():
+    with session_scope() as db:
+        rows = repo.list_products(db, status="published")[:12]
+        company_ids = {p.company_id for p in rows if p.company_id}
+        companies = {
+            c.id: c.name
+            for c in db.query(db_models.Company)
+                       .filter(db_models.Company.id.in_(company_ids))
+                       .all()
+        } if company_ids else {}
+        return [
+            {
+                "id": p.id,
+                "name": p.name,
+                "manufacturer": p.manufacturer_name or companies.get(p.company_id),
+                "family_code": p.family_code,
+                "company_name": companies.get(p.company_id),
+                "kpis": _catalog_kpis(p.passport or {}),
+                "image_url": _catalog_image_url(p),
+            }
+            for p in rows
+        ]
+
+
 @app.get("/api/products/{product_id}")
 async def get_product(product_id: str, user: dict = Depends(get_current_user)):
     """Get a single product (only if it belongs to the caller's company)."""

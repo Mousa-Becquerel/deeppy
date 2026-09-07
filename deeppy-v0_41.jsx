@@ -5545,7 +5545,7 @@ function PublishedDppsSection({ onNavigate, lang, T: $T, ic: $ic, Btn: $Btn }) {
   const [loading, setLoading] = useState(true);
   useEffect(() => {
     let cancelled = false;
-    fetch("/api/catalog", { credentials: "include" })
+    fetch("/api/catalog/public")
       .then(r => r.ok ? r.json() : [])
       .then(data => {
         if (cancelled) return;
