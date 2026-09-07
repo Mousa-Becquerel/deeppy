@@ -623,7 +623,7 @@ function EuFundingDisclaimer({ L }) {
               bind-mount at /agrobuilder/*; onError silently hides any
               file that hasn't been uploaded yet. */}
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, paddingBottom: 12, marginBottom: 12, borderBottom: `1px solid ${T.borderLight}` }}>
-            <img src="/agrobuilder/intransit-logo.png" alt="InTransit" style={{ height: 40, maxWidth: 100, objectFit: "contain", flexShrink: 0 }} onError={e=>{e.currentTarget.style.display="none";}} />
+            <img src="/agrobuilder/intransit-logo.png?v=2" alt="InTransit" style={{ height: 40, maxWidth: 100, objectFit: "contain", flexShrink: 0 }} onError={e=>{e.currentTarget.style.display="none";}} />
             <img
               src="/agrobuilder/funded-by-eu.png?v=2"
               alt="Funded by the European Union"
@@ -5837,7 +5837,7 @@ function NewLandingPage({ onNavigate, L }) {
         <div style={{ maxWidth: 1020, margin: "0 auto" }}>
           {/* Logos row — same 3 as the sidebar disclaimer (InTransit / EU / Rurbanive) */}
           <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 40, flexWrap: "wrap", marginBottom: 22 }}>
-            <img src="/agrobuilder/intransit-logo.png" alt="InTransit" style={{ height: 54, maxWidth: 160, objectFit: "contain" }} onError={e=>{e.currentTarget.style.display="none";}} />
+            <img src="/agrobuilder/intransit-logo.png?v=2" alt="InTransit" style={{ height: 54, maxWidth: 160, objectFit: "contain" }} onError={e=>{e.currentTarget.style.display="none";}} />
             <img src="/agrobuilder/funded-by-eu.png?v=2" alt="Funded by the European Union" style={{ height: 54, maxWidth: 240, objectFit: "contain" }} onError={e=>{e.currentTarget.style.display="none";}} />
             <img src="/agrobuilder/rurbanive-logo.png" alt="Rurbanive" style={{ height: 54, maxWidth: 160, objectFit: "contain" }} onError={e=>{e.currentTarget.style.display="none";}} />
           </div>
