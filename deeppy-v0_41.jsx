@@ -6770,7 +6770,11 @@ export default function DeePPy() {
       case "public-dpp": return (
         <div style={{ minHeight: "100vh", background: T.navy, display: "flex", justifyContent: "center", padding: "20px 0" }}>
           <div style={{ width: "100%", maxWidth: "min(780px, 92vw)", background: T.bg, borderRadius: 16, overflow: "hidden", boxShadow: "0 25px 60px rgba(0,0,0,0.3)" }}>
-            <PublicDPPView onNavigate={navigate} L={L} dppData={publicDpp?.dppData || activeProduct?.dppData} imageUrl={publicDpp?.imageUrl || activeProduct?.imageUrl} />
+            {/* onNavigate only for signed-in viewers: it renders a "Back to
+                platform" button, which for someone who just scanned a QR off
+                a label would lead to a signup wall. Without it PublicDPPView
+                falls back to the "deeppy.eu · Powered by Levery" footer. */}
+            <PublicDPPView onNavigate={user ? navigate : undefined} L={L} dppData={publicDpp?.dppData || activeProduct?.dppData} imageUrl={publicDpp?.imageUrl || activeProduct?.imageUrl} />
           </div>
         </div>
       );
