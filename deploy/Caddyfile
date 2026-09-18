@@ -52,10 +52,25 @@ deeppy.eu {
 
 	# Baseline hardening headers on static-file responses. The API sets its
 	# own on API responses (H3 middleware in api.py).
-	header {
+	#
+	# Sept 18: the /embed/<id> widget exists specifically to be iframed by
+	# customers on their own sites, so it cannot carry X-Frame-Options: DENY —
+	# that was silently blocking every embed snippet the app hands out. The
+	# two matchers below are mutually exclusive: /embed/* gets a permissive
+	# frame-ancestors, everything else keeps the hard deny.
+	@notembed not path /embed/*
+	header @notembed {
 		Strict-Transport-Security "max-age=31536000; includeSubDomains"
 		X-Content-Type-Options "nosniff"
 		Referrer-Policy "strict-origin-when-cross-origin"
 		X-Frame-Options "DENY"
+	}
+
+	@embed path /embed/*
+	header @embed {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		Content-Security-Policy "frame-ancestors *"
 	}
 }

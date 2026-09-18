@@ -779,8 +779,8 @@ async def list_catalog_public():
 @app.get("/api/catalog/public/{product_id}/image")
 async def get_catalog_public_image(product_id: str):
     with session_scope() as db:
-        product = repo.get_product(db, product_id)
-        if not product or product.status != "published":
+        product = _published_by_ident(db, product_id)
+        if not product:
             raise HTTPException(404, "Not found")
         docs = getattr(product, "documents", None) or []
         doc = next((d for d in docs if getattr(d, "doc_type", None) == "product_image"), None)
@@ -808,11 +808,28 @@ async def get_catalog_public_image(product_id: str):
 # as the auth-gated /api/catalog/{id} below (which is already cross-tenant
 # for any authenticated user) but with no session required. Published
 # products only — drafts and archived stay unreachable.
+def _published_by_ident(db, ident: str):
+    """Resolve a published product from either its uuid or its friendly
+    incremental public_id. QR deep-links carry the uuid; the embed snippet
+    we hand customers carries the public_id — both resolve through here.
+    Returns None for drafts, archived products, and unknown identifiers."""
+    product = None
+    if ident.isdigit():
+        product = (db.query(db_models.Product)
+                     .filter(db_models.Product.public_id == int(ident))
+                     .first())
+    if product is None:
+        product = repo.get_product(db, ident)
+    if not product or product.status != "published":
+        return None
+    return product
+
+
 @app.get("/api/catalog/public/{product_id}")
 async def get_catalog_public_product(product_id: str):
     with session_scope() as db:
-        product = repo.get_product(db, product_id)
-        if not product or product.status != "published":
+        product = _published_by_ident(db, product_id)
+        if not product:
             raise HTTPException(404, "Product not found")
         detail = _product_detail(product)
         # Trim to what the public DPP view actually renders. Keeps internal

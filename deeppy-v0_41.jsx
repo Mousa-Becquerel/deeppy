@@ -6411,6 +6411,37 @@ export default function DeePPy() {
     return () => { cancelled = true; };
   }, [navigate]);
 
+  // The embed snippet the app hands customers points at /embed/<public id>.
+  // Caddy serves the SPA for that path, but nothing here read the pathname —
+  // only the hash and ?dpp — so a customer's iframe rendered the marketing
+  // page. Detect the path, fetch the passport publicly, and render a
+  // chrome-less DPP view suitable for sitting inside someone else's page.
+  const [embedDpp, setEmbedDpp] = useState(null);
+  // Checked synchronously on first render, not in the effect below, so the
+  // iframe never flashes the marketing landing while the fetch is in flight.
+  const isEmbedPath = (() => {
+    try { return /^\/embed\/[^/?#]+\/?$/.test(window.location.pathname); }
+    catch { return false; }
+  })();
+  useEffect(() => {
+    let ident = null;
+    try {
+      const m = window.location.pathname.match(/^\/embed\/([^/?#]+)\/?$/);
+      ident = m ? decodeURIComponent(m[1]) : null;
+    } catch {}
+    if (!ident) return;
+    let cancelled = false;
+    const enc = encodeURIComponent(ident);
+    fetch(`/api/catalog/public/${enc}`)
+      .then(r => r.ok ? r.json() : null)
+      .then(d => {
+        if (cancelled || !d?.passport) return;
+        setEmbedDpp({ dppData: d, imageUrl: `/api/catalog/public/${enc}/image` });
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
+
   // Client bug: navigating to the onboarding / manual-entry flow while a
   // previously-viewed DPP was still the active product caused the fresh
   // AppEditView to render with THAT product's data — and any typing on top
@@ -6709,6 +6740,14 @@ export default function DeePPy() {
   ]);
 
   const content = (() => {
+    // Embed mode (/embed/<id>) renders bare — no nav, no footer, no cookie
+    // banner — because it sits inside a customer's own page.
+    if (isEmbedPath) {
+      if (!embedDpp) {
+        return <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: font, color: T.textSec, background: T.bg }}>…</div>;
+      }
+      return <PublicDPPView L={L} dppData={embedDpp.dppData} imageUrl={embedDpp.imageUrl} />;
+    }
     // Gate protected pages behind authentication (wait for the session check first).
     if (PROTECTED.has(page)) {
       if (!authChecked) return <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: font, color: T.textSec }}>…</div>;
@@ -6738,5 +6777,5 @@ export default function DeePPy() {
       default: return <NewLandingPage onNavigate={navigate} L={L} />;
     }
   })();
-  return <>{content}<CookieBanner lang={lang} /></>;
+  return <>{content}{!isEmbedPath && <CookieBanner lang={lang} />}</>;
 }
