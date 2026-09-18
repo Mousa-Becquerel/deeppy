@@ -803,6 +803,32 @@ async def get_catalog_public_image(product_id: str):
         return FileResponse(str(resolved), filename=doc.filename)
 
 
+# Sept 18 client feedback: a QR code printed on a product label has to
+# resolve for anyone who scans it, not just logged-in users. Same payload
+# as the auth-gated /api/catalog/{id} below (which is already cross-tenant
+# for any authenticated user) but with no session required. Published
+# products only — drafts and archived stay unreachable.
+@app.get("/api/catalog/public/{product_id}")
+async def get_catalog_public_product(product_id: str):
+    with session_scope() as db:
+        product = repo.get_product(db, product_id)
+        if not product or product.status != "published":
+            raise HTTPException(404, "Product not found")
+        detail = _product_detail(product)
+        # Trim to what the public DPP view actually renders. Keeps internal
+        # bookkeeping — source_documents, document ids, the eval reference,
+        # batch overrides — off a route that requires no session.
+        return {
+            "id": detail.get("id"),
+            "name": detail.get("name"),
+            "manufacturer": detail.get("manufacturer"),
+            "family_code": detail.get("family_code"),
+            "status": detail.get("status"),
+            "passport": detail.get("passport"),
+            "stats": detail.get("stats"),
+        }
+
+
 @app.get("/api/catalog/{product_id}")
 async def get_catalog_product(product_id: str, user: dict = Depends(get_current_user)):
     """Catalog detail: a single product, but only if it's published.

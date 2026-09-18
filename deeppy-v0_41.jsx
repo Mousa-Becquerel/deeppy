@@ -669,8 +669,8 @@ function EuFundingDisclaimer({ L }) {
           </div>
           <div style={{ fontSize: 11, color: T.textSec, lineHeight: 1.55, marginBottom: 10, fontStyle: "italic" }}>
             {it
-              ? "Il finanziamento InTransit copre l'integrazione di funzionalità basate su AI e analisi dei dati per la compilazione automatica dei DPP e l'ottimizzazione della catena di fornitura."
-              : "InTransit funding covers the integration of AI-based functionalities and data analytics for automatic DPP compilation and supply chain optimization."}
+              ? "Il finanziamento Rurbanive copre l'integrazione di funzionalità basate su AI e analisi dei dati per la compilazione automatica dei DPP e l'ottimizzazione della catena di fornitura."
+              : "Rurbanive funding covers the integration of AI-based functionalities and data analytics for automatic DPP compilation and supply chain optimization."}
           </div>
           {/* EU standard views-and-opinions disclaimer — required accompanying
               text under Horizon Europe / REA grant rules. */}
@@ -5577,10 +5577,14 @@ function PublishedDppsSection({ onNavigate, lang, T: $T, ic: $ic, Btn: $Btn }) {
         ) : (
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 14 }}>
             {shown.map(p => (
-              <button
+              // Sept 18 client feedback: cards link straight to the public
+              // DPP page (?dpp=<id>) — the same URL the printed QR encodes —
+              // instead of dumping the visitor into the auth-gated catalog.
+              // Real anchors so they're shareable and middle-click works.
+              <a
                 key={p.id}
-                onClick={() => onNavigate("catalog")}
-                style={{ display: "flex", gap: 14, alignItems: "flex-start", padding: 16, borderRadius: 12, background: "#fff", border: `1px solid ${$T.border}`, cursor: "pointer", fontFamily: font, textAlign: "left", transition: "border-color .15s, box-shadow .15s" }}
+                href={`/?dpp=${encodeURIComponent(p.id)}`}
+                style={{ display: "flex", gap: 14, alignItems: "flex-start", padding: 16, borderRadius: 12, background: "#fff", border: `1px solid ${$T.border}`, cursor: "pointer", fontFamily: font, textAlign: "left", textDecoration: "none", transition: "border-color .15s, box-shadow .15s" }}
                 onMouseEnter={e=>{ e.currentTarget.style.borderColor = $T.accent; e.currentTarget.style.boxShadow = `0 4px 16px rgba(46,196,160,0.08)`; }}
                 onMouseLeave={e=>{ e.currentTarget.style.borderColor = $T.border; e.currentTarget.style.boxShadow = "none"; }}
               >
@@ -5597,7 +5601,7 @@ function PublishedDppsSection({ onNavigate, lang, T: $T, ic: $ic, Btn: $Btn }) {
                     {p.kpis?.gwp_total != null && <span style={{ padding: "2px 8px", borderRadius: 999, background: $T.accentSoft, color: $T.accent, fontSize: 10, fontWeight: 700 }}>{p.kpis.gwp_total} kgCO₂e</span>}
                   </div>
                 </div>
-              </button>
+              </a>
             ))}
           </div>
         )}
@@ -5619,8 +5623,6 @@ function NewLandingPage({ onNavigate, L }) {
   const [formCtx, setFormCtx] = useState("hero");
   const [mobileMenu, setMobileMenu] = useState(false);
   const [expandedFeat, setExpandedFeat] = useState(null);
-  const [dppProd, setDppProd] = useState(null);
-  const [dppTab, setDppTab] = useState(0);
   const t = $tx[lang];
   const font = "'DM Sans', 'Segoe UI', system-ui, sans-serif";
 
@@ -5800,28 +5802,10 @@ function NewLandingPage({ onNavigate, L }) {
         </div>
       </section>
 
-      {/* ─── CATALOG (3 distinct products) ─── */}
-      <section id="catalog" data-track-section className="sp" style={{ padding: "72px 24px", background: $T.bgSoft }}>
-        <div style={{ maxWidth: 760, margin: "0 auto", textAlign: "center" }}>
-          <h2 style={{ fontSize: 24, fontWeight: 800, color: $T.navy, marginBottom: 8 }}>{t.catalog.h}</h2>
-          <p style={{ fontSize: 14, color: $T.textSec, lineHeight: 1.6, marginBottom: 28 }}>{t.catalog.sub}</p>
-          <div style={{ display: "flex", gap: 14, justifyContent: "center", flexWrap: "wrap" }}>
-            {$products[lang].map((prod) => (
-              <button key={prod.id} onClick={() => { setDppProd(prod); setDppTab(0); $track("catalog_product_clicked", { product: prod.name }); }}
-                style={{ padding: "16px 20px", borderRadius: 12, background: $T.white, border: `1px solid ${$T.border}`, display: "flex", alignItems: "center", gap: 12, cursor: "pointer", fontFamily: font, transition: "all 0.2s", textAlign: "left", minWidth: 220 }}
-                onMouseEnter={(e) => { e.currentTarget.style.borderColor = $T.accentBorder; e.currentTarget.style.boxShadow = `0 4px 16px rgba(46,196,160,0.08)`; }}
-                onMouseLeave={(e) => { e.currentTarget.style.borderColor = $T.border; e.currentTarget.style.boxShadow = "none"; }}>
-                <div style={{ width: 40, height: 40, borderRadius: 10, background: $T.navy, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}><span style={{ color: $T.accent, fontWeight: 800, fontSize: 9 }}>{prod.name.split(" ")[0].slice(0, 4).toUpperCase()}</span></div>
-                <div style={{ flex: 1 }}><div style={{ fontSize: 13, fontWeight: 700, color: $T.navy }}>{prod.name}</div><div style={{ fontSize: 11, color: $T.textSec }}>{prod.mfr}</div></div>
-                <div style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
-                  <$Badge bg={$T.accentSoft} color={prod.pct >= 85 ? $T.accent : prod.pct >= 70 ? "#F5A623" : $T.warn} style={{ fontSize: 10, padding: "3px 10px" }}>{prod.pct}%</$Badge>
-                </div>
-              </button>
-            ))}
-          </div>
-          <p style={{ fontSize: 12, color: $T.textSec, marginTop: 16, opacity: 0.7 }}>{t.catalog.note}</p>
-        </div>
-      </section>
+      {/* Sept 18 client feedback: the hardcoded 3-product demo catalog that
+          used to sit here was the second "published DPP" section on the page.
+          Removed — PublishedDppsSection (after How it works) is now the only
+          one, and it shows real published passports. */}
 
       {/* ─── FINAL CTA ─── */}
       <section id="final" data-track-section className="sp" style={{ padding: "72px 24px", background: $T.navy, textAlign: "center" }}>
@@ -5835,21 +5819,30 @@ function NewLandingPage({ onNavigate, L }) {
           Positioned above the dark corporate footer. */}
       <section id="funding" className="sp" style={{ padding: "40px 24px 36px", background: "#fff", borderTop: `1px solid ${$T.border}` }}>
         <div style={{ maxWidth: 1020, margin: "0 auto" }}>
-          {/* Logos row — same 3 as the sidebar disclaimer (InTransit / EU / Rurbanive) */}
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 40, flexWrap: "wrap", marginBottom: 22 }}>
-            <img src="/agrobuilder/intransit-logo.png?v=2" alt="InTransit" style={{ height: 54, maxWidth: 160, objectFit: "contain" }} onError={e=>{e.currentTarget.style.display="none";}} />
-            <img src="/agrobuilder/funded-by-eu.png?v=2" alt="Funded by the European Union" style={{ height: 54, maxWidth: 240, objectFit: "contain" }} onError={e=>{e.currentTarget.style.display="none";}} />
-            <img src="/agrobuilder/rurbanive-logo.png" alt="Rurbanive" style={{ height: 54, maxWidth: 160, objectFit: "contain" }} onError={e=>{e.currentTarget.style.display="none";}} />
+          {/* Sept 18 client feedback: layout reworked to match their PowerPoint
+              mock — heading on top, EU emblem alone on the left, the two grant
+              lines stacked on the right each paired with its own project logo.
+              All three logos link out to the respective project sites. */}
+          <div style={{ fontSize: 14, color: $T.navy, fontWeight: 700, textAlign: "center", marginBottom: 20 }}>
+            {lang === "it" ? "Questo progetto ha ricevuto finanziamenti dall'Unione Europea" : "This project received funding from the European Union"}
           </div>
-          {/* Grant identifiers */}
-          <div style={{ display: "flex", flexDirection: "column", gap: 4, marginBottom: 14, textAlign: "center" }}>
-            <div style={{ fontSize: 13, color: $T.navy, fontWeight: 700 }}>
-              {lang === "it" ? "Questo progetto ha ricevuto finanziamenti dall'Unione Europea" : "This project received funding from the European Union"}
-            </div>
-            <div style={{ fontSize: 12, color: $T.textSec, lineHeight: 1.75 }}>
-              <strong style={{ color: $T.navy }}>InTransit</strong> Grant Agreement ID <span style={{ fontFamily: "'JetBrains Mono','SF Mono',monospace" }}>101136597</span>
-              &nbsp;·&nbsp;
-              <strong style={{ color: $T.navy }}>Rurbanive</strong> Grant Agreement ID <span style={{ fontFamily: "'JetBrains Mono','SF Mono',monospace" }}>101091494</span>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 44, flexWrap: "wrap", marginBottom: 20 }}>
+            <a href="https://european-union.europa.eu/" target="_blank" rel="noopener noreferrer" style={{ flexShrink: 0, lineHeight: 0 }}>
+              <img src="/agrobuilder/funded-by-eu.png?v=2" alt="Funded by the European Union" style={{ height: 58, maxWidth: 240, objectFit: "contain" }} onError={e=>{e.currentTarget.style.display="none";}} />
+            </a>
+            <div style={{ display: "grid", gridTemplateColumns: "auto 108px", columnGap: 22, rowGap: 14, alignItems: "center" }}>
+              <div style={{ fontSize: 12.5, color: $T.textSec }}>
+                <strong style={{ color: $T.navy }}>InTransit</strong> Grant Agreement ID <span style={{ fontFamily: "'JetBrains Mono','SF Mono',monospace" }}>101136597</span>
+              </div>
+              <a href="https://intransitproject.eu/" target="_blank" rel="noopener noreferrer" style={{ lineHeight: 0, justifySelf: "center" }}>
+                <img src="/agrobuilder/intransit-logo.png?v=2" alt="InTransit" style={{ height: 38, maxWidth: 108, objectFit: "contain" }} onError={e=>{e.currentTarget.style.display="none";}} />
+              </a>
+              <div style={{ fontSize: 12.5, color: $T.textSec }}>
+                <strong style={{ color: $T.navy }}>Rurbanive</strong> Grant Agreement ID <span style={{ fontFamily: "'JetBrains Mono','SF Mono',monospace" }}>101091494</span>
+              </div>
+              <a href="https://rurbanive-project.eu/" target="_blank" rel="noopener noreferrer" style={{ lineHeight: 0, justifySelf: "center" }}>
+                <img src="/agrobuilder/rurbanive-logo.png" alt="Rurbanive" style={{ height: 34, maxWidth: 108, objectFit: "contain" }} onError={e=>{e.currentTarget.style.display="none";}} />
+              </a>
             </div>
           </div>
           {/* REA views-and-opinions disclaimer — required under Horizon Europe */}
@@ -5877,7 +5870,6 @@ function NewLandingPage({ onNavigate, L }) {
 
       {/* ─── MODALS ─── */}
       <$FormModal open={formOpen} onClose={() => setFormOpen(false)} t={t.form} context={formCtx} />
-      {dppProd && <$DppModal lang={lang} prod={dppProd} activeTab={dppTab} onTab={(j) => { setDppTab(j); $track("dpp_tab_clicked", { tab: j, product: dppProd.name }); }} onClose={() => { setDppProd(null); $track("dpp_modal_closed"); }} onComplete={() => { setDppProd(null); openForm("dpp_complete_" + dppProd.name); }} onCta={() => { setDppProd(null); openForm("dpp_create_" + dppProd.name); }} t={t} />}
     </div>
   );
 }
@@ -6395,6 +6387,30 @@ export default function DeePPy() {
 
   const activeProduct = products.find(p => p.id === activeProductId) || null;
 
+  // Sept 18 client feedback: a QR code printed on a product label has to
+  // resolve for whoever scans it. Previously ?dpp=<id> was only honoured for
+  // logged-in users (it bounced them into the auth-gated catalog) and was
+  // ignored outright when logged out, so a scan landed on the marketing page.
+  // Now any ?dpp=<id> pulls the passport from the public endpoint and renders
+  // the standalone public DPP page — same result with or without a session.
+  const [publicDpp, setPublicDpp] = useState(null);
+  useEffect(() => {
+    let dppId = null;
+    try { dppId = new URLSearchParams(window.location.search).get("dpp"); } catch {}
+    if (!dppId) return;
+    let cancelled = false;
+    const enc = encodeURIComponent(dppId);
+    fetch(`/api/catalog/public/${enc}`)
+      .then(r => r.ok ? r.json() : null)
+      .then(d => {
+        if (cancelled || !d?.passport) return;
+        setPublicDpp({ dppData: d, imageUrl: `/api/catalog/public/${enc}/image` });
+        navigate("public-dpp");
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [navigate]);
+
   // Client bug: navigating to the onboarding / manual-entry flow while a
   // previously-viewed DPP was still the active product caused the fresh
   // AppEditView to render with THAT product's data — and any typing on top
@@ -6478,12 +6494,13 @@ export default function DeePPy() {
         if (d?.user) {
           setUser(d.user);
           loadProducts();
-          // If the URL carries a QR deep-link (?dpp=<id>) send the user to
-          // the catalog so the CatalogView effect can auto-open the modal.
+          // A ?dpp=<id> QR deep-link is handled by the public-DPP effect and
+          // must win over the dashboard redirect, so a scan resolves to the
+          // same page whether or not the scanner happens to be logged in.
           let hasDppParam = false;
           try { hasDppParam = new URLSearchParams(window.location.search).has("dpp"); } catch {}
-          if (page === "landing" || page === "signup" || page === "login") {
-            navigate(hasDppParam ? "catalog" : "dashboard");
+          if (!hasDppParam && (page === "landing" || page === "signup" || page === "login")) {
+            navigate("dashboard");
           }
         }
       })
@@ -6714,7 +6731,7 @@ export default function DeePPy() {
       case "public-dpp": return (
         <div style={{ minHeight: "100vh", background: T.navy, display: "flex", justifyContent: "center", padding: "20px 0" }}>
           <div style={{ width: "100%", maxWidth: "min(780px, 92vw)", background: T.bg, borderRadius: 16, overflow: "hidden", boxShadow: "0 25px 60px rgba(0,0,0,0.3)" }}>
-            <PublicDPPView onNavigate={navigate} L={L} dppData={activeProduct?.dppData} imageUrl={activeProduct?.imageUrl} />
+            <PublicDPPView onNavigate={navigate} L={L} dppData={publicDpp?.dppData || activeProduct?.dppData} imageUrl={publicDpp?.imageUrl || activeProduct?.imageUrl} />
           </div>
         </div>
       );
