@@ -544,6 +544,35 @@ function publicDppUrl(product, opts = {}) {
 // built levels can report themselves rather than silently 404.
 const PUBLIC_DPP_PATH_RE = /^\/(DPP-M-\d+)(?:_(DPP-[BI]-\d+))?\/?$/i;
 
+// Chrome for the standalone public passport page (QR / shared link landing).
+// The passport's own header and footer are dark navy, so the page behind it
+// has to be light: on a navy background those two bands merged straight into
+// the backdrop and only the card's middle third read as a card at all.
+// Shared by both entry points so they can't drift apart.
+// NOTE: deliberately not used by the in-app overlay versions of this view —
+// those sit on a dimmed backdrop as modals, which is correct there.
+function publicPageShell(T) {
+  return {
+    page: {
+      minHeight: "100vh",
+      background: "linear-gradient(180deg,#EEF2F7 0%,#DCE4ED 100%)",
+      display: "flex",
+      justifyContent: "center",
+      padding: "40px 16px 64px",
+    },
+    card: {
+      width: "100%",
+      maxWidth: "min(780px, 92vw)",
+      alignSelf: "flex-start",
+      background: T.bg,
+      borderRadius: 18,
+      overflow: "hidden",
+      border: `1px solid ${T.border}`,
+      boxShadow: "0 1px 2px rgba(15,23,41,.05), 0 14px 40px rgba(15,23,41,.12)",
+    },
+  };
+}
+
 // Bucket 6: full descriptive names for the CPR family codes shown as
 // 3-letter chips in the catalog filter row. Used as the tooltip so a
 // human hovering can actually read what "PTA" or "CMG" means. Codes
@@ -6402,7 +6431,11 @@ function PublicDPPView({ onNavigate, L, isSpecific = false, dppData = null, imag
   const ActivePanel = { tech: PanelTech, comp: PanelComp, project: PanelProject, env: PanelEnv, docs: PanelDocs, history: PanelHistory }[tab];
 
   return (
-    <div style={{ fontFamily: font, background: T.bgSoft, minHeight: "100vh" }}>
+    // minHeight 100% rather than 100vh: this renders inside a card on the
+    // standalone public page, and forcing viewport height there stretched the
+    // card past its content, leaving dead space above the footer. Callers that
+    // want it to fill the screen (the embed iframe) wrap it in a 100vh box.
+    <div style={{ fontFamily: font, background: T.bgSoft, minHeight: "100%" }}>
       {/* Header: manufacturer */}
       <div style={{ background: T.navy, borderBottom: `3px solid ${T.accent}` }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 20px", borderBottom: `1px solid ${T.navyLight}` }}>
@@ -6943,16 +6976,20 @@ export default function DeePPy() {
       if (!embedDpp) {
         return <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: font, color: T.textSec, background: T.bg }}>…</div>;
       }
-      return <PublicDPPView L={L} dppData={embedDpp.dppData} imageUrl={embedDpp.imageUrl} />;
+      // Embeds fill the host's iframe edge to edge — no card, no page chrome.
+      return (
+        <div style={{ minHeight: "100vh", background: T.bgSoft }}>
+          <PublicDPPView L={L} dppData={embedDpp.dppData} imageUrl={embedDpp.imageUrl} />
+        </div>
+      );
     }
     // A canonical /DPP-M-#### URL renders the public passport directly, with
     // no page chrome and without touching the hash router — someone arriving
     // from a printed QR should never see the marketing page first.
     if (publicDppReq?.fromPath) {
+      const sh = publicPageShell(T);
       const shell = (inner) => (
-        <div style={{ minHeight: "100vh", background: T.navy, display: "flex", justifyContent: "center", padding: "20px 0" }}>
-          <div style={{ width: "100%", maxWidth: "min(780px, 92vw)", background: T.bg, borderRadius: 16, overflow: "hidden", boxShadow: "0 25px 60px rgba(0,0,0,0.3)" }}>{inner}</div>
-        </div>
+        <div style={sh.page}><div style={sh.card}>{inner}</div></div>
       );
       if (publicDppError) {
         const msg = publicDppError === "private"
@@ -6992,8 +7029,8 @@ export default function DeePPy() {
       case "app-edit": return <AppEditView onNavigate={navigate} L={L} dppData={activeProduct?.dppData} product={activeProduct} onAddProjectDPP={handleAddProjectDPP} onSave={handleSaveProduct} onReloadProduct={loadProductDetail} onCreateBlankProduct={handleCreateBlankProduct} />;
       case "app": return <AppView onNavigate={navigate} L={L} product={activeProduct} onAddProjectDPP={handleAddProjectDPP} onPublish={handlePublish} onReloadProduct={loadProductDetail} onSave={handleSaveProduct} />;
       case "public-dpp": return (
-        <div style={{ minHeight: "100vh", background: T.navy, display: "flex", justifyContent: "center", padding: "20px 0" }}>
-          <div style={{ width: "100%", maxWidth: "min(780px, 92vw)", background: T.bg, borderRadius: 16, overflow: "hidden", boxShadow: "0 25px 60px rgba(0,0,0,0.3)" }}>
+        <div style={publicPageShell(T).page}>
+          <div style={publicPageShell(T).card}>
             {/* onNavigate only for signed-in viewers: it renders a "Back to
                 platform" button, which for someone who just scanned a QR off
                 a label would lead to a signup wall. Without it PublicDPPView
