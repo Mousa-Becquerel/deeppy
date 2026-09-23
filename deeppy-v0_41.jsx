@@ -5576,17 +5576,24 @@ function PublishedDppsSection({ onNavigate, lang, T: $T, ic: $ic, Btn: $Btn }) {
           <div style={{ textAlign: "center", padding: 24, color: $T.textSec, fontSize: 13 }}>{it ? "Caricamento…" : "Loading…"}</div>
         ) : (
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 14 }}>
-            {shown.map(p => (
-              // Sept 18 client feedback: cards link straight to the public
-              // DPP page (?dpp=<id>) — the same URL the printed QR encodes —
-              // instead of dumping the visitor into the auth-gated catalog.
-              // Real anchors so they're shareable and middle-click works.
-              <a
+            {shown.map(p => {
+              // Sept 23 client feedback: every published product still shows
+              // as a card, but only the ones flagged public_access open as a
+              // full DPP. The rest render as inert tiles — no href, no hover
+              // affordance, and a lock hint — so the page doesn't promise a
+              // link that would just 403.
+              const open = !!p.public_access;
+              const Tag = open ? "a" : "div";
+              const linkProps = open
+                ? { href: `/?dpp=${encodeURIComponent(p.display_id || p.id)}` }
+                : { "aria-disabled": "true" };
+              return (
+              <Tag
                 key={p.id}
-                href={`/?dpp=${encodeURIComponent(p.id)}`}
-                style={{ display: "flex", gap: 14, alignItems: "flex-start", padding: 16, borderRadius: 12, background: "#fff", border: `1px solid ${$T.border}`, cursor: "pointer", fontFamily: font, textAlign: "left", textDecoration: "none", transition: "border-color .15s, box-shadow .15s" }}
-                onMouseEnter={e=>{ e.currentTarget.style.borderColor = $T.accent; e.currentTarget.style.boxShadow = `0 4px 16px rgba(46,196,160,0.08)`; }}
-                onMouseLeave={e=>{ e.currentTarget.style.borderColor = $T.border; e.currentTarget.style.boxShadow = "none"; }}
+                {...linkProps}
+                style={{ display: "flex", gap: 14, alignItems: "flex-start", padding: 16, borderRadius: 12, background: "#fff", border: `1px solid ${$T.border}`, cursor: open ? "pointer" : "default", fontFamily: font, textAlign: "left", textDecoration: "none", transition: "border-color .15s, box-shadow .15s" }}
+                onMouseEnter={e=>{ if(!open) return; e.currentTarget.style.borderColor = $T.accent; e.currentTarget.style.boxShadow = `0 4px 16px rgba(46,196,160,0.08)`; }}
+                onMouseLeave={e=>{ if(!open) return; e.currentTarget.style.borderColor = $T.border; e.currentTarget.style.boxShadow = "none"; }}
               >
                 {p.image_url
                   ? <img src={p.image_url} alt={p.name || ""} style={{ width: 56, height: 56, borderRadius: 10, objectFit: "cover", background: $T.bgSoft, border: `1px solid ${$T.border}`, flexShrink: 0 }} onError={e=>{e.currentTarget.style.display="none";}} />
@@ -5599,10 +5606,12 @@ function PublishedDppsSection({ onNavigate, lang, T: $T, ic: $ic, Btn: $Btn }) {
                   <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                     {p.family_code && <span style={{ padding: "2px 8px", borderRadius: 999, background: $T.bgSoft, color: $T.navy, fontSize: 10, fontWeight: 700, letterSpacing: "0.03em" }}>{p.family_code}</span>}
                     {p.kpis?.gwp_total != null && <span style={{ padding: "2px 8px", borderRadius: 999, background: $T.accentSoft, color: $T.accent, fontSize: 10, fontWeight: 700 }}>{p.kpis.gwp_total} kgCO₂e</span>}
+                    {!open && <span style={{ padding: "2px 8px", borderRadius: 999, background: $T.bgSoft, color: $T.textSec, fontSize: 10, fontWeight: 600 }}>{it ? "Su richiesta" : "On request"}</span>}
                   </div>
                 </div>
-              </a>
-            ))}
+              </Tag>
+              );
+            })}
           </div>
         )}
         {shown.length > 0 && (
@@ -6417,6 +6426,7 @@ export default function DeePPy() {
   // page. Detect the path, fetch the passport publicly, and render a
   // chrome-less DPP view suitable for sitting inside someone else's page.
   const [embedDpp, setEmbedDpp] = useState(null);
+  const [embedError, setEmbedError] = useState(null);   // "private" | "notfound" | null
   // Checked synchronously on first render, not in the effect below, so the
   // iframe never flashes the marketing landing while the fetch is in flight.
   const isEmbedPath = (() => {
@@ -6433,12 +6443,19 @@ export default function DeePPy() {
     let cancelled = false;
     const enc = encodeURIComponent(ident);
     fetch(`/api/catalog/public/${enc}`)
-      .then(r => r.ok ? r.json() : null)
+      .then(r => {
+        if (r.ok) return r.json();
+        // Sept 23: a failed lookup used to leave the iframe on a permanent
+        // "…", which is how the broken DPP-M-0002 lookup went unnoticed.
+        // Surface it instead.
+        if (!cancelled) setEmbedError(r.status === 403 ? "private" : "notfound");
+        return null;
+      })
       .then(d => {
         if (cancelled || !d?.passport) return;
         setEmbedDpp({ dppData: d, imageUrl: `/api/catalog/public/${enc}/image` });
       })
-      .catch(() => {});
+      .catch(() => { if (!cancelled) setEmbedError("notfound"); });
     return () => { cancelled = true; };
   }, []);
 
@@ -6743,6 +6760,17 @@ export default function DeePPy() {
     // Embed mode (/embed/<id>) renders bare — no nav, no footer, no cookie
     // banner — because it sits inside a customer's own page.
     if (isEmbedPath) {
+      if (embedError) {
+        const msg = embedError === "private"
+          ? (lang === "it" ? "Questo passaporto non è disponibile pubblicamente." : "This passport is not publicly available.")
+          : (lang === "it" ? "Passaporto non trovato." : "Passport not found.");
+        return (
+          <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 8, fontFamily: font, background: T.bg, padding: 24, textAlign: "center" }}>
+            <div style={{ fontSize: 14, fontWeight: 700, color: T.navy }}>{msg}</div>
+            <a href="https://deeppy.eu" target="_blank" rel="noopener noreferrer" style={{ fontSize: 12, color: T.accent, textDecoration: "none" }}>deeppy.eu</a>
+          </div>
+        );
+      }
       if (!embedDpp) {
         return <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: font, color: T.textSec, background: T.bg }}>…</div>;
       }

@@ -9,6 +9,7 @@ Endpoints:
 import asyncio
 import json
 import logging
+import re
 import shutil
 import tempfile
 import uuid
@@ -768,6 +769,11 @@ async def list_catalog_public():
                 # the auth-gated /api/catalog/{id}/documents/{id} route, so the
                 # landing page shows real cover images to anonymous visitors.
                 "image_url": f"/api/catalog/public/{p.id}/image" if _catalog_image_url(p) else None,
+                # Sept 23: the card renders for every published product, but
+                # only these open as a full public DPP. The frontend uses this
+                # to decide whether the card is a link or an inert tile.
+                "public_access": bool(p.public_access),
+                "display_id": f"DPP-M-{str(p.public_id).zfill(4)}" if p.public_id is not None else None,
             }
             for p in rows
         ]
@@ -808,16 +814,51 @@ async def get_catalog_public_image(product_id: str):
 # as the auth-gated /api/catalog/{id} below (which is already cross-tenant
 # for any authenticated user) but with no session required. Published
 # products only — drafts and archived stay unreachable.
+# Prefixed display ids as the UI renders them: DPP-M-0002 (model),
+# DPP-B-0007 (batch), DPP-I-0042 (item). The padding is cosmetic, so the
+# pattern accepts any digit count and the case is ignored.
+_DISPLAY_ID_RE = re.compile(r"^DPP-([MBI])-0*(\d+)$", re.IGNORECASE)
+_DISPLAY_LEVEL = {"m": "model", "b": "batch", "i": "item"}
+
+
+def _parse_display_id(ident: str):
+    """(level, public_id) for a prefixed display id, else (None, None)."""
+    m = _DISPLAY_ID_RE.match((ident or "").strip())
+    if not m:
+        return None, None
+    return _DISPLAY_LEVEL[m.group(1).lower()], int(m.group(2))
+
+
 def _published_by_ident(db, ident: str):
-    """Resolve a published product from either its uuid or its friendly
-    incremental public_id. QR deep-links carry the uuid; the embed snippet
-    we hand customers carries the public_id — both resolve through here.
-    Returns None for drafts, archived products, and unknown identifiers."""
+    """Resolve a published product from any identifier the UI hands out.
+
+    Three forms reach here, and all three are in the wild:
+      - the uuid              — what ?dpp= QR deep-links encode
+      - DPP-M-0002            — what the embed snippet and the printed
+                                display id use (this is the form the app
+                                actually generates; missing it is why the
+                                embed widget rendered a permanent spinner)
+      - a bare public_id      — tolerated for hand-written links
+
+    Returns None for drafts, archived products and unknown identifiers.
+    A DPP-B-/DPP-I- id is a batch/item, not a model, so it resolves to None
+    here — those have their own lookup.
+    """
+    ident = (ident or "").strip()
     product = None
-    if ident.isdigit():
+
+    level, public_id = _parse_display_id(ident)
+    if level == "model":
+        product = (db.query(db_models.Product)
+                     .filter(db_models.Product.public_id == public_id)
+                     .first())
+    elif level in ("batch", "item"):
+        return None
+    elif ident.isdigit():
         product = (db.query(db_models.Product)
                      .filter(db_models.Product.public_id == int(ident))
                      .first())
+
     if product is None:
         product = repo.get_product(db, ident)
     if not product or product.status != "published":
@@ -831,6 +872,11 @@ async def get_catalog_public_product(product_id: str):
         product = _published_by_ident(db, product_id)
         if not product:
             raise HTTPException(404, "Product not found")
+        # Sept 23 client feedback: being published is not the same as being
+        # publicly readable. Listed-but-not-public products return 403 so the
+        # UI can say "sign in to view" rather than "doesn't exist".
+        if not product.public_access:
+            raise HTTPException(403, "This passport is not publicly available")
         detail = _product_detail(product)
         # Trim to what the public DPP view actually renders. Keeps internal
         # bookkeeping — source_documents, document ids, the eval reference,
@@ -1071,6 +1117,19 @@ async def update_product(product_id: str, body: ProductUpdate,
                 passport_snapshot=body.passport,
                 label=f"v{n}",
                 change_summary=body.change_summary,
+            )
+        elif body.status == "published":
+            # Sept 23 client feedback: "every time a DPP is republished we
+            # should keep track of it". The publish button PATCHes only
+            # {status: "published"} with no passport, so the branch above
+            # never fired and republishes left no trace in the Versions tab.
+            # Snapshot the passport as it stands at publish time.
+            n = repo.count_versions(db, product_id) + 1
+            repo.create_version(
+                db, product_id,
+                passport_snapshot=product.passport or {},
+                label=f"v{n}",
+                change_summary=body.change_summary or "Published",
             )
         if body.status is not None or body.name is not None:
             repo.update_product_fields(db, product_id, status=body.status, name=body.name)

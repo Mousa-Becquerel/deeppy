@@ -15,6 +15,7 @@ import uuid
 from datetime import datetime, timezone
 
 from sqlalchemy import (
+    Boolean,
     DateTime,
     Float,
     ForeignKey,
@@ -100,6 +101,14 @@ class Product(Base):
     family_code: Mapped[str | None] = mapped_column(String(16), nullable=True, index=True)
     status: Mapped[str] = mapped_column(String(32), default="draft", index=True)
     completeness: Mapped[float] = mapped_column(Float, default=0.0)
+    # Sept 23 client feedback: publishing a product lists it on the landing
+    # page, but opening the full passport without a session is a separate,
+    # opt-in decision. Published-but-not-public products still render as a
+    # card/icon; the DPP itself is gated. Default False so nothing becomes
+    # publicly readable by accident — it has to be turned on per product.
+    public_access: Mapped[bool] = mapped_column(
+        Boolean, default=False, nullable=False, server_default="0"
+    )
 
     # Source of truth.
     passport: Mapped[dict] = mapped_column(JSON, default=dict)
