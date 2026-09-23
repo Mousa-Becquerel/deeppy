@@ -104,6 +104,10 @@ class ProductUpdate(BaseModel):
     status: Optional[str] = None
     name: Optional[str] = None
     change_summary: Optional[str] = None   # version note when passport changes
+    # Opt a published product in/out of anonymous public access. Separate from
+    # `status`: publishing lists it in the catalog, this decides whether the
+    # passport itself opens without a session.
+    public_access: Optional[bool] = None
 
 
 class BatchCreate(BaseModel):
@@ -299,6 +303,10 @@ def _product_summary(p) -> dict:
         "family_code": p.family_code,
         "status": p.status,
         "completeness": p.completeness,
+        # Whether an anonymous visitor can open this passport. Surfaced to the
+        # owner so the app can show and toggle it, instead of it being a flag
+        # only we can change over SSH.
+        "public_access": bool(p.public_access),
         "created_at": p.created_at.isoformat() if p.created_at else None,
         "updated_at": p.updated_at.isoformat() if p.updated_at else None,
     }
@@ -1133,6 +1141,16 @@ async def update_product(product_id: str, body: ProductUpdate,
             )
         if body.status is not None or body.name is not None:
             repo.update_product_fields(db, product_id, status=body.status, name=body.name)
+
+        if body.public_access is not None:
+            # Only a published product can be publicly readable — otherwise a
+            # draft could be opened by anyone holding the link.
+            effective_status = body.status or product.status
+            if body.public_access and effective_status != "published":
+                raise HTTPException(
+                    400, "Publish the product before making it publicly accessible"
+                )
+            product.public_access = bool(body.public_access)
 
         db.flush()
         return _product_detail(product)

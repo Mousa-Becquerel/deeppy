@@ -3724,6 +3724,30 @@ function AppView({ onNavigate, L, product, onAddProjectDPP, onPublish, onReloadP
   const [tab, setTab] = useState("panoramica");
   const [chatOpen, setChatOpen] = useState(false);
   const [published, setPublished] = useState(product?.status === "published");
+  // Sept 23: whether anonymous visitors can open this passport. Distinct from
+  // publishing — publishing lists it in the catalog, this decides whether the
+  // public URL / QR / embed actually resolve for someone without an account.
+  // Previously only settable by us over SSH, which made every change a ticket.
+  const [publicAccess, setPublicAccess] = useState(!!product?.publicAccess);
+  const [togglingPublic, setTogglingPublic] = useState(false);
+  useEffect(() => { setPublicAccess(!!product?.publicAccess); }, [product?.id, product?.publicAccess]);
+  const togglePublicAccess = async () => {
+    if (!product?.id || togglingPublic) return;
+    const next = !publicAccess;
+    setTogglingPublic(true);
+    setPublicAccess(next);                       // optimistic
+    try {
+      const r = await fetch(`/api/products/${product.id}`, {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ public_access: next }),
+      });
+      if (!r.ok) setPublicAccess(!next);         // roll back on refusal
+      else if (onReloadProduct) onReloadProduct(product.id);
+    } catch { setPublicAccess(!next); }
+    setTogglingPublic(false);
+  };
   const [showEmbed, setShowEmbed] = useState(false);
   const [showCSV, setShowCSV] = useState(false);
   const [showQR, setShowQR] = useState(false);
@@ -3900,7 +3924,12 @@ function AppView({ onNavigate, L, product, onAddProjectDPP, onPublish, onReloadP
       ? `<img src="${qrDataUrlLocal}" width="120" height="120" alt="QR" style="border-radius:4px;image-rendering:pixelated" />`
       : `<div style="width:120px;height:120px;border:1px dashed #cbd5e1;border-radius:4px;display:flex;align-items:center;justify-content:center;color:#94a3b8;font-size:10px">QR unavailable</div>`;
 
-    const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>DPP Summary</title>
+    // The browser uses the document title as the default filename in the
+    // print-to-PDF dialog, so this is what each export ends up called.
+    const exportName = `${puid}-${String(pname || "DPP")}`
+      .replace(/[^\w\-]+/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "").slice(0, 80);
+
+    const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${exportName}</title>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap');
 *{margin:0;padding:0;box-sizing:border-box}
@@ -3925,7 +3954,17 @@ body{font-family:'Inter',sans-serif;color:#1E293B;font-size:12px;line-height:1.5
 .qr-text a{color:#059669;font-weight:600;font-size:10px;word-break:break-all}
 .footer{margin-top:28px;padding-top:12px;border-top:2px solid #D1FAE5;display:flex;justify-content:space-between;font-size:9px;color:#94A3B8}
 .na{color:#94A3B8;font-style:italic}
-@media print{body{padding:0}.page{padding:20px 28px}}
+@page{margin:12mm}
+/* Browsers drop background colours when printing unless told otherwise, which
+   would strip every badge and the green header rule out of the PDF. */
+*{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+@media print{
+  body{padding:0}
+  .page{padding:0;max-width:none}
+  /* Keep a card and the QR block from being split across two pages. */
+  .card,.qr-section,table{break-inside:avoid;page-break-inside:avoid}
+  a{text-decoration:none;color:inherit}
+}
 </style></head><body><div class="page">
 <div class="header">
   <div class="logo-area"><img src="${LOGO_SRC}" /><span class="logo-text">Dee<b>PP</b>y</span><span class="badge">Digital Product Passport</span></div>
@@ -3998,15 +4037,33 @@ body{font-family:'Inter',sans-serif;color:#1E293B;font-size:12px;line-height:1.5
 </div>
 </div></body></html>`;
 
-    const blob = new Blob([html], { type: "text/html;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = "DPP-XPS100-Summary.html";
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    // Sept 23 client feedback: this button says "Download PDF" but used to
+    // hand over an .html file — and always under the same hardcoded demo
+    // filename, "DPP-XPS100-Summary.html", whatever product you exported.
+    // Render into a hidden iframe and print it: the browser's print-to-PDF
+    // produces a real PDF, and the title above names it per product. An
+    // iframe (not window.open) so popup blockers don't eat it.
+    const frame = document.createElement("iframe");
+    frame.setAttribute("aria-hidden", "true");
+    frame.style.cssText = "position:fixed;right:0;bottom:0;width:0;height:0;border:0;visibility:hidden";
+    const cleanup = () => { try { document.body.removeChild(frame); } catch {} };
+    frame.onload = () => {
+      try {
+        const win = frame.contentWindow;
+        win.focus();
+        // Let the webfont and the QR data-URI paint before printing —
+        // printing immediately can produce a blank or unstyled first page.
+        setTimeout(() => {
+          win.print();
+          setTimeout(cleanup, 1000);
+        }, 350);
+      } catch (err) {
+        console.error("PDF print failed:", err);
+        cleanup();
+      }
+    };
+    document.body.appendChild(frame);
+    frame.srcdoc = html;
   };
 
   const csvData = (() => {
@@ -4684,6 +4741,28 @@ body{font-family:'Inter',sans-serif;color:#1E293B;font-size:12px;line-height:1.5
                   <div style={{ padding: "8px 10px", borderRadius: 8, background: T.accentSoft, border: `1px solid ${T.accent}30`, textAlign: "center", marginBottom: 2 }}>
                     <div style={{ fontSize: 10, fontWeight: 700, color: T.accentDark }}><I d={ic.check} size={9} color={T.accentDark} /> {_("published")}</div>
                   </div>
+                  {/* Public access toggle — published is not the same as
+                      publicly readable, so this is its own switch. */}
+                  <button
+                    onClick={togglePublicAccess}
+                    disabled={togglingPublic}
+                    title={publicAccess ? publicDppUrl(product) : undefined}
+                    style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: "7px 9px", borderRadius: 8, cursor: togglingPublic ? "wait" : "pointer", fontFamily: font, textAlign: "left", background: publicAccess ? T.accentSoft : T.bg, border: `1px solid ${publicAccess ? T.accent + "55" : T.border}`, opacity: togglingPublic ? 0.6 : 1 }}
+                  >
+                    <span style={{ width: 26, height: 15, borderRadius: 999, background: publicAccess ? T.accent : T.border, position: "relative", flexShrink: 0, transition: "background .15s" }}>
+                      <span style={{ position: "absolute", top: 2, left: publicAccess ? 13 : 2, width: 11, height: 11, borderRadius: "50%", background: "#fff", transition: "left .15s" }} />
+                    </span>
+                    <span style={{ flex: 1, minWidth: 0 }}>
+                      <span style={{ display: "block", fontSize: 10, fontWeight: 700, color: publicAccess ? T.accentDark : T.textSec }}>
+                        {publicAccess ? (it ? "Accesso pubblico" : "Public access") : (it ? "Solo su richiesta" : "On request only")}
+                      </span>
+                      <span style={{ display: "block", fontSize: 9, color: T.textMuted, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                        {publicAccess
+                          ? (it ? "QR e link aperti a tutti" : "QR & link open to anyone")
+                          : (it ? "Il DPP richiede il login" : "DPP requires sign-in")}
+                      </span>
+                    </span>
+                  </button>
                   <Btn primary onClick={()=>setShowPublicDPP(true)} style={{ width: "100%", justifyContent: "center", fontSize: 12 }}><I d={ic.globe} size={14} color={T.navy} /> {it?"DPP Pubblico":"Public DPP"}</Btn>
                   {/* Export dropdown */}
                   <div style={{ position: "relative" }}>
@@ -6531,6 +6610,8 @@ export default function DeePPy() {
     // Bucket 7 / Tier D: incremental integer for the DPP-M-{public_id}
     // prefixed display + /dpp/model/{public_id} public URL.
     publicId: api.public_id,
+    // Whether anonymous visitors can open this passport (toggled in AppView).
+    publicAccess: api.public_access,
     name: api.name,
     manufacturer: api.manufacturer || "",
     // Bug fix: the batch-composition picker's "Same family" filter needs
