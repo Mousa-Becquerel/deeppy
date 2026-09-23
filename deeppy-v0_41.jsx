@@ -6019,7 +6019,13 @@ function PublicDPPView({ onNavigate, L, isSpecific = false, dppData = null, imag
     category: _ev("overview.product_info.product_family") || "",
     standard: _ev("compliance.dop_standard") || "",
     completion: Math.round(_stats?.completeness ?? 0),
-    lastUpdated: "", version: "",
+    lastUpdated: (() => {
+      const raw = dppData?.updated_at;
+      if (!raw) return "";
+      try { return new Date(raw).toLocaleDateString(it ? "it-IT" : "en-GB", { day: "2-digit", month: "short", year: "numeric" }); }
+      catch { return ""; }
+    })(),
+    version: "",
     technical: Object.fromEntries(
       (_pp.performance?.values || []).map(v => {
         const val = (v.value && typeof v.value === "object") ? v.value.value : v.value;
@@ -6405,12 +6411,17 @@ function PublicDPPView({ onNavigate, L, isSpecific = false, dppData = null, imag
         <div style={{ padding: "18px 20px 16px" }}>
           <Badge color={T.accentDark||T.accent} bg={T.accentSoft}>{p.category}</Badge>
           <h1 style={{ fontSize: 21, fontWeight: 800, color: T.navy, margin: "8px 0 0", lineHeight: 1.2 }}>{p.name}</h1>
+          {/* Only render the parts that actually have a value — this used to
+              print "· ·" with nothing between them on passports with no
+              date/version set. */}
           <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 8, fontSize: 11, color: T.textSec, flexWrap: "wrap" }}>
-            <span><I d={ic.clock} size={11} /> {p.lastUpdated}</span>
-            <span style={{ opacity: 0.4 }}>{"·"}</span>
-            <span>{p.version}</span>
-            <span style={{ opacity: 0.4 }}>{"·"}</span>
-            <span style={{ color: T.accent, fontWeight: 600, cursor: "pointer" }} onClick={()=>setTab("history")}>{p.versions.length} {it?"versioni":"versions"}</span>
+            {[
+              p.lastUpdated ? <span key="d"><I d={ic.clock} size={11} /> {p.lastUpdated}</span> : null,
+              p.version ? <span key="v">{p.version}</span> : null,
+              p.versions.length ? <span key="h" style={{ color: T.accent, fontWeight: 600, cursor: "pointer" }} onClick={()=>setTab("history")}>{p.versions.length} {it?"versioni":"versions"}</span> : null,
+            ].filter(Boolean).reduce((acc, el, i) => acc.length
+              ? [...acc, <span key={`s${i}`} style={{ opacity: 0.4 }}>{"·"}</span>, el]
+              : [el], [])}
           </div>
         </div>
       </div>
@@ -6475,8 +6486,17 @@ export default function DeePPy() {
     // Anchor the CURRENT view in history on first mount so back doesn't
     // immediately leave the app. Idempotent — replaceState overwrites the
     // current entry rather than adding a new one.
+    //
+    // Skipped on the public DPP and embed URLs: those are real addresses that
+    // get printed on labels and pasted into other people's sites, and this
+    // was appending "#landing" to them (deeppy.eu/DPP-M-0010#landing).
+    let isSharedPublicUrl = false;
     try {
-      if (!window.history.state || window.history.state.page !== page) {
+      const path = window.location.pathname;
+      isSharedPublicUrl = PUBLIC_DPP_PATH_RE.test(path) || /^\/embed\/[^/?#]+\/?$/.test(path);
+    } catch {}
+    try {
+      if (!isSharedPublicUrl && (!window.history.state || window.history.state.page !== page)) {
         window.history.replaceState({ page }, "", `#${page}`);
       }
     } catch {}

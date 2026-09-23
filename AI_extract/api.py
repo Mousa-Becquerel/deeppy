@@ -897,6 +897,9 @@ async def get_catalog_public_product(product_id: str):
             "status": detail.get("status"),
             "passport": detail.get("passport"),
             "stats": detail.get("stats"),
+            # Shown as "last updated" on the public passport — without it the
+            # meta row rendered as an empty "· ·".
+            "updated_at": detail.get("updated_at"),
         }
 
 
