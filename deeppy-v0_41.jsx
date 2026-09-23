@@ -517,6 +517,33 @@ function dppId(level, publicId, fallbackUuid = null) {
   return prefix;
 }
 
+// Sept 23 client spec for public DPP links:
+//   MODEL  https://deeppy.eu/DPP-M-0002
+//   BATCH  https://deeppy.eu/DPP-M-0002_DPP-B-0007   (not built yet)
+//   ITEM   https://deeppy.eu/DPP-M-0002_DPP-I-0042   (not built yet)
+// Single source of truth for anything that prints or copies a link (QR modal,
+// PDF export, embed snippet) so those three can't drift apart again.
+const PUBLIC_ORIGIN = "https://deeppy.eu";
+function publicDppPath(product, opts = {}) {
+  const { batchPublicId = null, itemPublicId = null } = opts;
+  if (product?.publicId == null) {
+    // Legacy rows without a public_id: the uuid deep-link still resolves, so
+    // previously printed QR codes keep working.
+    return product?.id ? `/?dpp=${product.id}` : "/";
+  }
+  const model = dppId("model", product.publicId, product?.id);
+  if (batchPublicId != null) return `/${model}_${dppId("batch", batchPublicId)}`;
+  if (itemPublicId != null) return `/${model}_${dppId("item", itemPublicId)}`;
+  return `/${model}`;
+}
+function publicDppUrl(product, opts = {}) {
+  return `${PUBLIC_ORIGIN}${publicDppPath(product, opts)}`;
+}
+// Matches a public DPP path at the site root. Deliberately tight — it must not
+// swallow real routes — and it captures the batch/item half so the not-yet-
+// built levels can report themselves rather than silently 404.
+const PUBLIC_DPP_PATH_RE = /^\/(DPP-M-\d+)(?:_(DPP-[BI]-\d+))?\/?$/i;
+
 // Bucket 6: full descriptive names for the CPR family codes shown as
 // 3-letter chips in the catalog filter row. Used as the tooltip so a
 // human hovering can actually read what "PTA" or "CMG" means. Codes
@@ -3329,9 +3356,10 @@ function CatalogView({ onNavigate, L }) {
     } catch {}
   };
 
-  // Item 10: QR deep-link handler. When someone scans a QR code that points
-  // at https://deeppy.eu/?dpp=<id>, they land on the catalog and this effect
-  // auto-opens the modal for that product once the catalog rows have loaded.
+  // Legacy ?dpp=<uuid> convenience. QR codes now encode /DPP-M-0002, which
+  // App renders as the standalone public page without coming through here.
+  // This only still fires when a signed-in user lands on the catalog with a
+  // ?dpp= param already in the URL — it opens that product's card.
   useEffect(() => {
     if (loading || rows.length === 0) return;
     try {
@@ -3773,9 +3801,11 @@ function AppView({ onNavigate, L, product, onAddProjectDPP, onPublish, onReloadP
   // Encodes a deep-link to the catalog with the product pre-selected;
   // opening the URL takes any user (once logged in) straight to this DPP.
   const [qrDataUrl, setQrDataUrl] = useState("");
-  const qrTarget = product?.id
-    ? `https://deeppy.eu/?dpp=${product.id}`
-    : "https://deeppy.eu/";
+  // Sept 23 client spec: the canonical public URL is the prefixed display id
+  // at the root — https://deeppy.eu/DPP-M-0002. Legacy rows with no public_id
+  // fall back to the old ?dpp=<uuid> form, which still resolves, so previously
+  // printed QR codes keep working.
+  const qrTarget = publicDppUrl(product);
   useEffect(() => {
     if (!showQR) return;
     let cancelled = false;
@@ -3859,7 +3889,7 @@ function AppView({ onNavigate, L, product, onAddProjectDPP, onPublish, onReloadP
     // https://deeppy.eu/dpp/{puid} — a route that doesn't exist. Now:
     // (1) generate a real QR via the same qrcode lib the modal uses, and
     // (2) target the deep-link URL that the catalog actually resolves.
-    const qrUrl = product?.id ? `https://deeppy.eu/?dpp=${product.id}` : `https://deeppy.eu/`;
+    const qrUrl = publicDppUrl(product);
     let qrDataUrlLocal = "";
     try {
       qrDataUrlLocal = await QRCode.toDataURL(qrUrl, { margin: 1, width: 512, errorCorrectionLevel: "M" });
@@ -5584,8 +5614,10 @@ function PublishedDppsSection({ onNavigate, lang, T: $T, ic: $ic, Btn: $Btn }) {
               // link that would just 403.
               const open = !!p.public_access;
               const Tag = open ? "a" : "div";
+              // Canonical public URL (Sept 23 spec): /DPP-M-0002. Falls back
+              // to the legacy uuid deep-link for rows without a public_id.
               const linkProps = open
-                ? { href: `/?dpp=${encodeURIComponent(p.display_id || p.id)}` }
+                ? { href: p.display_id ? `/${p.display_id}` : `/?dpp=${encodeURIComponent(p.id)}` }
                 : { "aria-disabled": "true" };
               return (
               <Tag
@@ -6403,21 +6435,43 @@ export default function DeePPy() {
   // Now any ?dpp=<id> pulls the passport from the public endpoint and renders
   // the standalone public DPP page — same result with or without a session.
   const [publicDpp, setPublicDpp] = useState(null);
+  const [publicDppError, setPublicDppError] = useState(null); // private|notfound|unsupported
+  // Entry points into the public DPP, in priority order:
+  //   /DPP-M-0002              canonical, Sept 23 client spec
+  //   /DPP-M-0002_DPP-B-0007   batch/item — recognised, not built yet
+  //   ?dpp=<uuid>              legacy QR codes, still honoured
+  // Resolved synchronously so a path hit renders the DPP shell straight away
+  // instead of flashing the marketing landing first.
+  const publicDppReq = (() => {
+    try {
+      const m = window.location.pathname.match(PUBLIC_DPP_PATH_RE);
+      if (m) return { ident: m[1], sub: m[2] || null, fromPath: true };
+      const q = new URLSearchParams(window.location.search).get("dpp");
+      if (q) return { ident: q, sub: null, fromPath: false };
+    } catch {}
+    return null;
+  })();
   useEffect(() => {
-    let dppId = null;
-    try { dppId = new URLSearchParams(window.location.search).get("dpp"); } catch {}
-    if (!dppId) return;
+    if (!publicDppReq) return;
+    // Batch and item levels are specced but not built. Say so plainly rather
+    // than resolving the model half and showing the wrong passport.
+    if (publicDppReq.sub) { setPublicDppError("unsupported"); return; }
     let cancelled = false;
-    const enc = encodeURIComponent(dppId);
+    const enc = encodeURIComponent(publicDppReq.ident);
     fetch(`/api/catalog/public/${enc}`)
-      .then(r => r.ok ? r.json() : null)
+      .then(r => {
+        if (r.ok) return r.json();
+        if (!cancelled) setPublicDppError(r.status === 403 ? "private" : "notfound");
+        return null;
+      })
       .then(d => {
         if (cancelled || !d?.passport) return;
         setPublicDpp({ dppData: d, imageUrl: `/api/catalog/public/${enc}/image` });
-        navigate("public-dpp");
+        if (!publicDppReq.fromPath) navigate("public-dpp");
       })
-      .catch(() => {});
+      .catch(() => { if (!cancelled) setPublicDppError("notfound"); });
     return () => { cancelled = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [navigate]);
 
   // The embed snippet the app hands customers points at /embed/<public id>.
@@ -6775,6 +6829,33 @@ export default function DeePPy() {
         return <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: font, color: T.textSec, background: T.bg }}>…</div>;
       }
       return <PublicDPPView L={L} dppData={embedDpp.dppData} imageUrl={embedDpp.imageUrl} />;
+    }
+    // A canonical /DPP-M-#### URL renders the public passport directly, with
+    // no page chrome and without touching the hash router — someone arriving
+    // from a printed QR should never see the marketing page first.
+    if (publicDppReq?.fromPath) {
+      const shell = (inner) => (
+        <div style={{ minHeight: "100vh", background: T.navy, display: "flex", justifyContent: "center", padding: "20px 0" }}>
+          <div style={{ width: "100%", maxWidth: "min(780px, 92vw)", background: T.bg, borderRadius: 16, overflow: "hidden", boxShadow: "0 25px 60px rgba(0,0,0,0.3)" }}>{inner}</div>
+        </div>
+      );
+      if (publicDppError) {
+        const msg = publicDppError === "private"
+          ? (lang === "it" ? "Questo passaporto non è disponibile pubblicamente." : "This passport is not publicly available.")
+          : publicDppError === "unsupported"
+            ? (lang === "it" ? "I passaporti di lotto e di unità non sono ancora disponibili pubblicamente." : "Batch and item passports are not publicly available yet.")
+            : (lang === "it" ? "Passaporto non trovato." : "Passport not found.");
+        return shell(
+          <div style={{ padding: "64px 24px", textAlign: "center", fontFamily: font }}>
+            <div style={{ fontSize: 15, fontWeight: 700, color: T.navy, marginBottom: 8 }}>{msg}</div>
+            <a href="/" style={{ fontSize: 13, color: T.accent, textDecoration: "none" }}>deeppy.eu</a>
+          </div>
+        );
+      }
+      if (!publicDpp) {
+        return shell(<div style={{ padding: "64px 24px", textAlign: "center", fontFamily: font, color: T.textSec }}>…</div>);
+      }
+      return shell(<PublicDPPView L={L} dppData={publicDpp.dppData} imageUrl={publicDpp.imageUrl} />);
     }
     // Gate protected pages behind authentication (wait for the session check first).
     if (PROTECTED.has(page)) {
