@@ -6197,7 +6197,18 @@ function PublicDPPView({ onNavigate, L, isSpecific = false, dppData = null, imag
     </div>);
 
   // Tab panels
-  const PanelTech = () => (<div><div style={{ marginBottom: 14 }}><Badge color={T.textSec} bg={T.borderLight}>{it?"Norma":"Standard"}: {p.standard}</Badge></div>{Object.entries(p.technical).map(([k,v])=><Row key={k} label={k} value={v} />)}</div>);
+  // Only show the standard chip when there IS a standard — it was rendering
+  // as a bare "Standard:" label with nothing after it. Same for the panel
+  // itself: an empty Technical tab now says so instead of showing a blank.
+  const PanelTech = () => {
+    const rows = Object.entries(p.technical);
+    return (<div>
+      {p.standard ? <div style={{ marginBottom: 14 }}><Badge color={T.textSec} bg={T.borderLight}>{it?"Norma":"Standard"}: {p.standard}</Badge></div> : null}
+      {rows.length
+        ? rows.map(([k,v])=><Row key={k} label={k} value={v} />)
+        : <div style={{ padding: "18px 2px", fontSize: 12, color: T.textSec, fontStyle: "italic" }}>{it?"Nessuna prestazione dichiarata per questo prodotto.":"No declared performance data for this product."}</div>}
+    </div>);
+  };
 
   const PanelComp = () => {
     // Item 14 (client feedback): concise "t-shirt label" style summary of the
@@ -6438,11 +6449,14 @@ function PublicDPPView({ onNavigate, L, isSpecific = false, dppData = null, imag
       </div>
       <div style={{ padding: 20, maxWidth: 640, margin: "0 auto" }}>{ActivePanel && <ActivePanel />}</div>
 
-      {/* Certifications */}
+      {/* Certifications — hidden entirely when there are none, rather than
+          a heading floating over an empty box on a public-facing page. */}
+      {p.certs.length > 0 && (
       <div style={{ margin: "0 16px 20px", padding: 20, borderRadius: 14, background: T.bg, border: `1px solid ${T.border}` }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14 }}><I d={ic.shield} size={15} color={T.accent} /><h3 style={{ fontSize: 15, fontWeight: 700, color: T.navy, margin: 0 }}>{it?"Certificazioni & Conformit\u00e0":"Certifications & Compliance"}</h3></div>
-        {p.certs.map((c,i)=>(<div key={i} style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "12px 0", borderBottom: i < p.certs.length-1 ? `1px solid ${T.borderLight}` : "none" }}><I d={ic.check} size={14} color={T.accent} /><div><div style={{ fontSize: 13, fontWeight: 600, color: T.textDark }}>{c.name}</div><div style={{ fontSize: 11, color: T.textSec }}>{c.num} {"·"} {c.issuer} {"·"} {c.valid}</div></div></div>))}
+        {p.certs.map((c,i)=>(<div key={i} style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "12px 0", borderBottom: i < p.certs.length-1 ? `1px solid ${T.borderLight}` : "none" }}><I d={ic.check} size={14} color={T.accent} /><div><div style={{ fontSize: 13, fontWeight: 600, color: T.textDark }}>{c.name}</div><div style={{ fontSize: 11, color: T.textSec }}>{[c.num, c.issuer, c.valid].filter(Boolean).join(" · ")}</div></div></div>))}
       </div>
+      )}
 
       {/* Footer */}
       <div style={{ background: T.navy, padding: "24px 20px", borderTop: `3px solid ${T.accent}` }}>
